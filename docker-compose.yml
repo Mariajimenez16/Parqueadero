@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: parqueadero_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: parqueadero_user
+      POSTGRES_PASSWORD: parqueadero_password
+      POSTGRES_DB: parqueadero_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: parqueadero_backend
+    restart: always
+    ports:
+      - "4000:4000"
+    environment:
+      PORT: 4000
+      DATABASE_URL: "postgresql://parqueadero_user:parqueadero_password@postgres:5432/parqueadero_db?schema=public"
+      JWT_SECRET: "super-secret-parqueadero-key-2026-sistemas-empresariales"
+      FRONTEND_URL: "http://localhost:5173"
+    depends_on:
+      - postgres
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: parqueadero_frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
