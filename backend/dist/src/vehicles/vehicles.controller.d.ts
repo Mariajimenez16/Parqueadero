@@ -4,7 +4,7 @@ import { UpdateVehicleDto } from './dto/update-vehicle.dto';
 export declare class VehiclesController {
     private readonly vehiclesService;
     constructor(vehiclesService: VehiclesService);
-    findAll(search?: string, type?: string, status?: string): Promise<({
+    findAll(user: any, search?: string, type?: string, status?: string): Promise<({
         movements: {
             id: string;
             space: {
@@ -199,7 +199,7 @@ export declare class VehiclesController {
         qrCodeToken: string;
         userId: string;
     }>;
-    create(createVehicleDto: CreateVehicleDto, userId: string): Promise<{
+    create(createVehicleDto: CreateVehicleDto, user: any): Promise<{
         user: {
             id: string;
             nombre: string;

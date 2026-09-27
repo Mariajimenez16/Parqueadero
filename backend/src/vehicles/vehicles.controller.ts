@@ -13,13 +13,15 @@ export class VehiclesController {
   constructor(private readonly vehiclesService: VehiclesService) {}
 
   @Get()
-  @Roles('ADMIN', 'VIGILANTE', 'CAJERO')
+  @Roles('ADMIN', 'VIGILANTE', 'CAJERO', 'USUARIO')
   async findAll(
+    @GetUser() user: any,
     @Query('search') search?: string,
     @Query('type') type?: string,
     @Query('status') status?: string,
   ) {
-    return this.vehiclesService.findAll(search, type, status);
+    const filterUserId = user.role === 'USUARIO' ? user.id : undefined;
+    return this.vehiclesService.findAll(search, type, status, filterUserId);
   }
 
   @Get('lookup/:identifier')
@@ -36,8 +38,11 @@ export class VehiclesController {
 
   @Post()
   @Roles('ADMIN', 'USUARIO')
-  async create(@Body() createVehicleDto: CreateVehicleDto, @GetUser('id') userId: string) {
-    return this.vehiclesService.create(createVehicleDto, userId);
+  async create(@Body() createVehicleDto: CreateVehicleDto, @GetUser() user: any) {
+    if (user.role === 'USUARIO' || !createVehicleDto.userId) {
+      createVehicleDto.userId = user.id;
+    }
+    return this.vehiclesService.create(createVehicleDto, user.id);
   }
 
   @Put(':id')

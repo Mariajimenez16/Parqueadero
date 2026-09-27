@@ -22,8 +22,8 @@ export class CreateVehicleDto {
   color: string;
 
   @IsString()
-  @IsNotEmpty({ message: 'El ID del usuario propietario es obligatorio.' })
-  userId: string;
+  @IsOptional()
+  userId?: string;
 
   @IsString()
   @IsOptional()

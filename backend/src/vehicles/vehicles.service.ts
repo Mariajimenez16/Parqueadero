@@ -2,15 +2,15 @@ import { Injectable, ConflictException, NotFoundException, BadRequestException }
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateVehicleDto } from './dto/create-vehicle.dto';
 import { UpdateVehicleDto } from './dto/update-vehicle.dto';
-import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class VehiclesService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(search?: string, type?: string, status?: string) {
+  async findAll(search?: string, type?: string, status?: string, userId?: string) {
     const where: any = {};
 
+    if (userId) where.userId = userId;
     if (type) where.type = type;
     if (status) where.status = status;
 

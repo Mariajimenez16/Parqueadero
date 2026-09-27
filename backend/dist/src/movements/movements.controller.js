@@ -48,7 +48,7 @@ __decorate([
 ], MovementsController.prototype, "getActiveMovements", null);
 __decorate([
     (0, common_1.Get)('history'),
-    (0, roles_decorator_1.Roles)('ADMIN', 'VIGILANTE'),
+    (0, roles_decorator_1.Roles)('ADMIN', 'VIGILANTE', 'CAJERO'),
     __param(0, (0, common_1.Query)('search')),
     __param(1, (0, common_1.Query)('dateFrom')),
     __param(2, (0, common_1.Query)('dateTo')),
@@ -58,7 +58,7 @@ __decorate([
 ], MovementsController.prototype, "getHistory", null);
 __decorate([
     (0, common_1.Post)('entry'),
-    (0, roles_decorator_1.Roles)('ADMIN', 'VIGILANTE'),
+    (0, roles_decorator_1.Roles)('ADMIN', 'VIGILANTE', 'CAJERO'),
     __param(0, (0, common_1.Body)()),
     __param(1, (0, get_user_decorator_1.GetUser)('id')),
     __metadata("design:type", Function),
@@ -67,7 +67,7 @@ __decorate([
 ], MovementsController.prototype, "registerEntry", null);
 __decorate([
     (0, common_1.Post)('exit'),
-    (0, roles_decorator_1.Roles)('ADMIN', 'VIGILANTE'),
+    (0, roles_decorator_1.Roles)('ADMIN', 'VIGILANTE', 'CAJERO'),
     __param(0, (0, common_1.Body)()),
     __param(1, (0, get_user_decorator_1.GetUser)('id')),
     __metadata("design:type", Function),

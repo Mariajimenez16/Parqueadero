@@ -41,7 +41,7 @@ __decorate([
 ], CreateVehicleDto.prototype, "color", void 0);
 __decorate([
     (0, class_validator_1.IsString)(),
-    (0, class_validator_1.IsNotEmpty)({ message: 'El ID del usuario propietario es obligatorio.' }),
+    (0, class_validator_1.IsOptional)(),
     __metadata("design:type", String)
 ], CreateVehicleDto.prototype, "userId", void 0);
 __decorate([

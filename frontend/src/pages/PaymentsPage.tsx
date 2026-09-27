@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
-import { Payment, Receipt } from '../types';
+import { Payment, Receipt, Movement } from '../types';
 import { Badge } from '../components/common/Badge';
 import { Modal } from '../components/common/Modal';
 import { Toast } from '../components/common/Toast';
@@ -17,15 +17,30 @@ import {
   Search,
   History,
   Clock,
+  Car,
   Loader2,
+  LogOut,
+  AlertTriangle,
 } from 'lucide-react';
 
+const getElapsedTime = (entryTime: string): string => {
+  const diffMs = Date.now() - new Date(entryTime).getTime();
+  const totalMinutes = Math.floor(diffMs / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes} min`;
+  return `${hours}h ${minutes}m`;
+};
+
 export const PaymentsPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
+  const [activeTab, setActiveTab] = useState<'activeVehicles' | 'pending' | 'history'>('pending');
+  const [activeMovements, setActiveMovements] = useState<Movement[]>([]);
   const [pendingPayments, setPendingPayments] = useState<Payment[]>([]);
   const [historyPayments, setHistoryPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [quickPlaca, setQuickPlaca] = useState('');
+  const [isLiquidating, setIsLiquidating] = useState(false);
 
   // Payment Checkout Modal
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
@@ -40,7 +55,10 @@ export const PaymentsPage: React.FC = () => {
   const fetchPayments = async () => {
     setLoading(true);
     try {
-      if (activeTab === 'pending') {
+      if (activeTab === 'activeVehicles') {
+        const res = await api.get('/movements/active');
+        setActiveMovements(res.data);
+      } else if (activeTab === 'pending') {
         const res = await api.get('/payments/pending', { params: { search } });
         setPendingPayments(res.data);
       } else {
@@ -64,13 +82,38 @@ export const PaymentsPage: React.FC = () => {
     setIsCheckoutOpen(true);
   };
 
+  // Liquidar salida de vehículo activo y abrir cobro inmediatamente
+  const handleLiquidateAndPay = async (placa: string) => {
+    if (!placa.trim()) return;
+    setIsLiquidating(true);
+    try {
+      const res = await api.post('/movements/exit', {
+        identifier: placa.trim().toUpperCase(),
+        observaciones: 'Salida liquidada en caja',
+      });
+      setToast({ type: 'success', message: res.data.message });
+      setQuickPlaca('');
+      
+      // Abrir inmediatamente la pasarela de cobro de la factura generada
+      if (res.data.payment) {
+        setSelectedPayment(res.data.payment);
+        setSelectedMethod('EFECTIVO');
+        setIsCheckoutOpen(true);
+      }
+      fetchPayments();
+    } catch (err: any) {
+      setToast({ type: 'error', message: err.message });
+    } finally {
+      setIsLiquidating(false);
+    }
+  };
+
   const handleProcessPayment = async () => {
     if (!selectedPayment) return;
     setIsProcessing(true);
 
     try {
-      // Simular latencia de red de pasarela bancaria digital
-      await new Promise((resolve) => setTimeout(resolve, 1200));
+      await new Promise((resolve) => setTimeout(resolve, 900));
 
       const res = await api.post(`/payments/${selectedPayment.id}/pay`, {
         metodoPago: selectedMethod,
@@ -90,8 +133,7 @@ export const PaymentsPage: React.FC = () => {
   const handleDownloadPDF = (data: Receipt) => {
     const doc = new jsPDF();
 
-    // Encabezado
-    doc.setFillColor(15, 23, 42); // slate-900
+    doc.setFillColor(15, 23, 42);
     doc.rect(0, 0, 210, 40, 'F');
 
     doc.setTextColor(255, 255, 255);
@@ -116,7 +158,6 @@ export const PaymentsPage: React.FC = () => {
     doc.text(`Método de Pago: ${data.metodoPago}`, 14, 66);
     doc.text(`Cajero / Responsable: ${data.cajero}`, 14, 72);
 
-    // Tabla con autoTable
     autoTable(doc, {
       startY: 80,
       head: [['Concepto / Descripción', 'Detalles']],
@@ -135,7 +176,6 @@ export const PaymentsPage: React.FC = () => {
       styles: { fontSize: 9 },
     });
 
-    // Total final
     const finalY = (doc as any).lastAutoTable.finalY + 15;
     doc.setFillColor(241, 245, 249);
     doc.rect(14, finalY, 182, 18, 'F');
@@ -145,7 +185,6 @@ export const PaymentsPage: React.FC = () => {
     doc.setFont('helvetica', 'bold');
     doc.text(`VALOR TOTAL PAGADO: $${data.valorTotal.toLocaleString()} COP`, 20, finalY + 12);
 
-    // Pie de página
     doc.setFontSize(8);
     doc.setFont('helvetica', 'italic');
     doc.setTextColor(100, 116, 139);
@@ -165,16 +204,47 @@ export const PaymentsPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
             <CircleDollarSign className="w-6 h-6 text-sky-400" />
-            Gestión de Pagos y Comprobantes
+            Gestión de Pagos y Caja
           </h1>
           <p className="text-xs text-slate-400">
-            Módulo de Caja para liquidación de facturas, pasarela digital y emisión de comprobantes PDF
+            Liquidación de salidas de vehículos activos, facturas pendientes y comprobantes oficiales
           </p>
+        </div>
+
+        {/* Liquidación rápida por placa */}
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="Placa a liquidar (ej: ABC-123)"
+            value={quickPlaca}
+            onChange={(e) => setQuickPlaca(e.target.value.toUpperCase())}
+            onKeyDown={(e) => e.key === 'Enter' && handleLiquidateAndPay(quickPlaca)}
+            className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 font-mono tracking-widest placeholder-slate-500 uppercase focus:outline-none focus:border-sky-500"
+          />
+          <button
+            onClick={() => handleLiquidateAndPay(quickPlaca)}
+            disabled={isLiquidating || !quickPlaca.trim()}
+            className="px-3.5 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-all shadow-md flex items-center gap-1.5"
+          >
+            {isLiquidating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogOut className="w-3.5 h-3.5" />}
+            <span>Cobrar Salida</span>
+          </button>
         </div>
       </div>
 
       {/* Tabs */}
       <div className="flex border-b border-slate-800">
+        <button
+          onClick={() => setActiveTab('activeVehicles')}
+          className={`px-4 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
+            activeTab === 'activeVehicles'
+              ? 'border-sky-500 text-sky-400'
+              : 'border-transparent text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Car className="w-4 h-4" />
+          Vehículos Activos en Recinto ({activeMovements.length})
+        </button>
         <button
           onClick={() => setActiveTab('pending')}
           className={`px-4 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
@@ -199,112 +269,192 @@ export const PaymentsPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Filter Bar */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 max-w-md">
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="Buscar por Placa, Nº Factura o Usuario..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 pl-10 text-slate-100 text-xs placeholder-slate-500 focus:outline-none focus:border-sky-500"
-          />
-          <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-2.5" />
+      {/* Filter Bar (para pending y history) */}
+      {activeTab !== 'activeVehicles' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 max-w-md">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Buscar por Placa, Nº Factura o Usuario..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 pl-10 text-slate-100 text-xs placeholder-slate-500 focus:outline-none focus:border-sky-500"
+            />
+            <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-2.5" />
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Table */}
+      {/* Tabla según la pestaña seleccionada */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs text-slate-300">
-            <thead className="bg-slate-950/80 text-slate-400 uppercase font-semibold text-[11px] border-b border-slate-800">
-              <tr>
-                <th className="p-4">Nº Factura</th>
-                <th className="p-4">Vehículo / Placa</th>
-                <th className="p-4">Usuario</th>
-                <th className="p-4">Estancia / Duración</th>
-                <th className="p-4">Valor Total</th>
-                <th className="p-4">Estado</th>
-                <th className="p-4 text-right">Acción</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/60">
-              {loading ? (
+          {activeTab === 'activeVehicles' ? (
+            /* TABLA DE VEHÍCULOS ACTIVOS */
+            <table className="w-full text-left text-xs text-slate-300">
+              <thead className="bg-slate-950/80 text-slate-400 uppercase font-semibold text-[11px] border-b border-slate-800">
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-slate-500">
-                    Cargando pagos...
-                  </td>
+                  <th className="p-4">Vehículo / Placa</th>
+                  <th className="p-4">Propietario / Cliente</th>
+                  <th className="p-4">Espacio Ocupado</th>
+                  <th className="p-4">Hora de Entrada</th>
+                  <th className="p-4">Tiempo en Recinto</th>
+                  <th className="p-4 text-right">Acción de Salida</th>
                 </tr>
-              ) : (activeTab === 'pending' ? pendingPayments : historyPayments).length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="p-8 text-center text-slate-500">
-                    {activeTab === 'pending'
-                      ? 'No hay cobros ni pagos pendientes en este momento.'
-                      : 'No existen registros en el historial de pagos.'}
-                  </td>
-                </tr>
-              ) : (
-                (activeTab === 'pending' ? pendingPayments : historyPayments).map((p) => (
-                  <tr key={p.id} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="p-4 font-mono font-bold text-sky-400">{p.numeroFactura}</td>
-                    <td className="p-4">
-                      <span className="font-mono text-sm font-extrabold text-slate-100">
-                        {p.movement?.vehicle?.placa}
-                      </span>
-                      <div className="text-[10px] text-slate-400">
-                        {p.movement?.vehicle?.type}
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <div className="font-semibold text-slate-200">
-                        {p.movement?.user?.nombre} {p.movement?.user?.apellidos}
-                      </div>
-                      <div className="text-[10px] text-slate-400">
-                        Doc: {p.movement?.user?.documento} ({p.movement?.user?.userType})
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <div className="font-medium text-slate-300">
-                        {p.movement?.duracionMinutos || 0} minutos
-                      </div>
-                      <div className="text-[10px] text-slate-500">
-                        Espacio: {p.movement?.space?.codigo}
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <span className="text-sm font-extrabold text-amber-400">
-                        ${p.valorTotal.toLocaleString()}
-                      </span>
-                    </td>
-                    <td className="p-4">
-                      <Badge status={p.estado} />
-                    </td>
-                    <td className="p-4 text-right">
-                      {p.estado === 'PENDIENTE' ? (
-                        <button
-                          onClick={() => handleOpenCheckout(p)}
-                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg text-xs transition-all shadow-md shadow-emerald-900/30"
-                        >
-                          Procesar Cobro
-                        </button>
-                      ) : (
-                        <button
-                          onClick={async () => {
-                            const res = await api.get(`/payments/${p.id}/receipt`);
-                            handleDownloadPDF(res.data);
-                          }}
-                          className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-sky-400 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 ml-auto"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>PDF</span>
-                        </button>
-                      )}
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {loading ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-slate-500">
+                      Cargando vehículos activos...
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : activeMovements.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-slate-500">
+                      No hay ningún vehículo activo dentro del parqueadero en este momento.
+                    </td>
+                  </tr>
+                ) : (
+                  activeMovements.map((m) => (
+                    <tr key={m.id} className="hover:bg-slate-800/40 transition-colors">
+                      <td className="p-4">
+                        <span className="font-mono text-base font-extrabold text-sky-400 tracking-wider">
+                          {m.vehicle?.placa}
+                        </span>
+                        <div className="text-[10px] text-slate-400">
+                          {m.vehicle?.marca} {m.vehicle?.modelo} ({m.vehicle?.type})
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <div className="font-semibold text-slate-100">
+                          {m.user?.nombre} {m.user?.apellidos}
+                        </div>
+                        <div className="text-[10px] text-slate-400">Doc: {m.user?.documento}</div>
+                      </td>
+                      <td className="p-4">
+                        <span className="px-2.5 py-1 bg-slate-950 border border-slate-700 rounded font-mono font-bold text-amber-400">
+                          {m.space?.codigo}
+                        </span>
+                      </td>
+                      <td className="p-4 font-mono text-slate-300">
+                        {new Date(m.entryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        <div className="text-[10px] text-slate-500">
+                          {new Date(m.entryTime).toLocaleDateString()}
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 text-slate-300">
+                          <Clock className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{getElapsedTime(m.entryTime)}</span>
+                        </div>
+                      </td>
+                      <td className="p-4 text-right">
+                        <button
+                          onClick={() => handleLiquidateAndPay(m.vehicle?.placa || '')}
+                          disabled={isLiquidating}
+                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold rounded-lg text-xs transition-all shadow-md shadow-emerald-900/30 flex items-center gap-1.5 ml-auto"
+                        >
+                          <CircleDollarSign className="w-3.5 h-3.5" />
+                          <span>Liquidar y Cobrar Salida</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          ) : (
+            /* TABLA DE FACTURAS (PENDIENTES O HISTORIAL) */
+            <table className="w-full text-left text-xs text-slate-300">
+              <thead className="bg-slate-950/80 text-slate-400 uppercase font-semibold text-[11px] border-b border-slate-800">
+                <tr>
+                  <th className="p-4">Nº Factura</th>
+                  <th className="p-4">Vehículo / Placa</th>
+                  <th className="p-4">Usuario</th>
+                  <th className="p-4">Estancia / Duración</th>
+                  <th className="p-4">Valor Total</th>
+                  <th className="p-4">Estado</th>
+                  <th className="p-4 text-right">Acción</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {loading ? (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-slate-500">
+                      Cargando pagos...
+                    </td>
+                  </tr>
+                ) : (activeTab === 'pending' ? pendingPayments : historyPayments).length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-slate-500">
+                      {activeTab === 'pending'
+                        ? 'No hay cobros ni pagos pendientes en este momento.'
+                        : 'No existen registros en el historial de pagos.'}
+                    </td>
+                  </tr>
+                ) : (
+                  (activeTab === 'pending' ? pendingPayments : historyPayments).map((p) => (
+                    <tr key={p.id} className="hover:bg-slate-800/40 transition-colors">
+                      <td className="p-4 font-mono font-bold text-sky-400">{p.numeroFactura}</td>
+                      <td className="p-4">
+                        <span className="font-mono text-sm font-extrabold text-slate-100">
+                          {p.movement?.vehicle?.placa}
+                        </span>
+                        <div className="text-[10px] text-slate-400">
+                          {p.movement?.vehicle?.type}
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <div className="font-semibold text-slate-200">
+                          {p.movement?.user?.nombre} {p.movement?.user?.apellidos}
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          Doc: {p.movement?.user?.documento} ({p.movement?.user?.userType})
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <div className="font-medium text-slate-300">
+                          {p.movement?.duracionMinutos || 0} minutos
+                        </div>
+                        <div className="text-[10px] text-slate-500">
+                          Espacio: {p.movement?.space?.codigo}
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <span className="text-sm font-extrabold text-amber-400">
+                          ${p.valorTotal.toLocaleString()}
+                        </span>
+                      </td>
+                      <td className="p-4">
+                        <Badge status={p.estado} />
+                      </td>
+                      <td className="p-4 text-right">
+                        {p.estado === 'PENDIENTE' ? (
+                          <button
+                            onClick={() => handleOpenCheckout(p)}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg text-xs transition-all shadow-md shadow-emerald-900/30"
+                          >
+                            Procesar Cobro
+                          </button>
+                        ) : (
+                          <button
+                            onClick={async () => {
+                              const res = await api.get(`/payments/${p.id}/receipt`);
+                              handleDownloadPDF(res.data);
+                            }}
+                            className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-sky-400 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 ml-auto"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>PDF</span>
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 

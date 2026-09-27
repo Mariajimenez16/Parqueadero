@@ -16,8 +16,10 @@ let VehiclesService = class VehiclesService {
     constructor(prisma) {
         this.prisma = prisma;
     }
-    async findAll(search, type, status) {
+    async findAll(search, type, status, userId) {
         const where = {};
+        if (userId)
+            where.userId = userId;
         if (type)
             where.type = type;
         if (status)

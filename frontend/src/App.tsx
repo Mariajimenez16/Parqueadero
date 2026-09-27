@@ -16,6 +16,22 @@ import { PaymentsPage } from './pages/PaymentsPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { AuditPage } from './pages/AuditPage';
 
+/** Ruta de inicio según el rol del usuario autenticado */
+const getRoleHome = (role?: string): string => {
+  switch (role) {
+    case 'ADMIN':
+      return '/dashboard';
+    case 'VIGILANTE':
+      return '/movements';
+    case 'CAJERO':
+      return '/payments';
+    case 'USUARIO':
+      return '/reservations';
+    default:
+      return '/login';
+  }
+};
+
 const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: string[] }> = ({
   children,
   allowedRoles,
@@ -24,8 +40,14 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: strin
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400 text-sm">
-        Cargando sesión...
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="flex items-center gap-3 text-slate-400 text-sm">
+          <svg className="w-5 h-5 animate-spin text-sky-400" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <span>Cargando sesión...</span>
+        </div>
       </div>
     );
   }
@@ -34,8 +56,9 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: strin
     return <Navigate to="/login" replace />;
   }
 
+  // Si el rol no tiene acceso, redirigir a la ruta de inicio de SU rol (no al dashboard general)
   if (allowedRoles && user && !allowedRoles.includes(user.role)) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={getRoleHome(user.role)} replace />;
   }
 
   return <>{children}</>;
@@ -53,15 +76,41 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   );
 };
 
+/** Redirige al home del rol correspondiente una vez autenticado */
+const RoleRedirect: React.FC = () => {
+  const { isAuthenticated, isLoading, user } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="flex items-center gap-3 text-slate-400 text-sm">
+          <svg className="w-5 h-5 animate-spin text-sky-400" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <span>Cargando sesión...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <Navigate to={getRoleHome(user?.role)} replace />;
+};
+
 export const AppContent: React.FC = () => {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
 
+      {/* Dashboard: solo para ADMIN, VIGILANTE y CAJERO — NO para USUARIO */}
       <Route
         path="/dashboard"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute allowedRoles={['ADMIN', 'VIGILANTE', 'CAJERO']}>
             <Layout>
               <DashboardPage />
             </Layout>
@@ -105,7 +154,7 @@ export const AppContent: React.FC = () => {
       <Route
         path="/movements"
         element={
-          <ProtectedRoute allowedRoles={['ADMIN', 'VIGILANTE']}>
+          <ProtectedRoute allowedRoles={['ADMIN', 'VIGILANTE', 'CAJERO']}>
             <Layout>
               <MovementsPage />
             </Layout>
@@ -168,7 +217,9 @@ export const AppContent: React.FC = () => {
         }
       />
 
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      {/* Ruta raíz y catch-all: redirige según el rol autenticado */}
+      <Route path="/" element={<RoleRedirect />} />
+      <Route path="*" element={<RoleRedirect />} />
     </Routes>
   );
 };

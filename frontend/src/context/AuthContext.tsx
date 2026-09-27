@@ -7,7 +7,7 @@ interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, pass: string) => Promise<void>;
+  login: (email: string, pass: string) => Promise<User>;
   logout: () => void;
   hasRole: (...roles: Role[]) => boolean;
 }
@@ -36,13 +36,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkSession();
   }, [token]);
 
-  const login = async (correo: string, password: string) => {
+  const login = async (correo: string, password: string): Promise<User> => {
     const res = await api.post('/auth/login', { correo, password });
     const { accessToken, user: userData } = res.data;
 
     localStorage.setItem('parqueadero_token', accessToken);
     setToken(accessToken);
     setUser(userData);
+    return userData;
   };
 
   const logout = () => {

@@ -11,12 +11,10 @@ import {
   Bike,
   Star,
   CheckCircle2,
-  AlertOctagon,
-  Wrench,
+  XCircle,
   Clock,
-  Filter,
+  Wrench,
   RefreshCw,
-  Plus,
 } from 'lucide-react';
 
 export const SpacesPage: React.FC = () => {
@@ -102,6 +100,59 @@ export const SpacesPage: React.FC = () => {
     }
   };
 
+  /** Indicadores del resumen sin emojis — íconos Lucide con puntos de color */
+  const summaryItems = [
+    {
+      key: 'disponibles',
+      label: 'Disponibles',
+      icon: <CheckCircle2 className="w-4 h-4 text-emerald-400" />,
+      dotColor: 'bg-emerald-400',
+      textColor: 'text-emerald-400',
+      borderColor: 'border-emerald-800/50',
+    },
+    {
+      key: 'ocupados',
+      label: 'Ocupados',
+      icon: <XCircle className="w-4 h-4 text-red-400" />,
+      dotColor: 'bg-red-400',
+      textColor: 'text-red-400',
+      borderColor: 'border-red-800/50',
+    },
+    {
+      key: 'reservados',
+      label: 'Reservados',
+      icon: <Clock className="w-4 h-4 text-amber-400" />,
+      dotColor: 'bg-amber-400',
+      textColor: 'text-amber-400',
+      borderColor: 'border-amber-800/50',
+    },
+    {
+      key: 'mantenimiento',
+      label: 'Mantenimiento',
+      icon: <Wrench className="w-4 h-4 text-orange-400" />,
+      dotColor: 'bg-orange-400',
+      textColor: 'text-orange-400',
+      borderColor: 'border-orange-800/50',
+    },
+    {
+      key: 'total',
+      label: 'Capacidad Total',
+      icon: <Grid className="w-4 h-4 text-sky-400" />,
+      dotColor: 'bg-sky-400',
+      textColor: 'text-sky-400',
+      borderColor: 'border-slate-700',
+    },
+  ];
+
+  /** Opciones de estado para el modal sin emojis */
+  const statusOptions = [
+    { value: 'DISPONIBLE', label: 'DISPONIBLE', dotColor: 'bg-emerald-400' },
+    { value: 'OCUPADO', label: 'OCUPADO', dotColor: 'bg-red-400' },
+    { value: 'RESERVADO', label: 'RESERVADO', dotColor: 'bg-amber-400' },
+    { value: 'MANTENIMIENTO', label: 'MANTENIMIENTO', dotColor: 'bg-orange-400' },
+    { value: 'INACTIVO', label: 'INACTIVO', dotColor: 'bg-slate-500' },
+  ];
+
   return (
     <div className="space-y-6">
       {toast && (
@@ -129,29 +180,23 @@ export const SpacesPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Indicadores Leyenda */}
+      {/* Indicadores de Resumen — sin emojis */}
       {summary && (
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          <div className="bg-slate-900 border border-emerald-800/50 p-3 rounded-xl text-center">
-            <p className="text-[10px] uppercase font-bold text-emerald-400">🟢 Disponibles</p>
-            <p className="text-xl font-extrabold text-slate-100 mt-0.5">{summary.disponibles}</p>
-          </div>
-          <div className="bg-slate-900 border border-red-800/50 p-3 rounded-xl text-center">
-            <p className="text-[10px] uppercase font-bold text-red-400">🔴 Ocupados</p>
-            <p className="text-xl font-extrabold text-slate-100 mt-0.5">{summary.ocupados}</p>
-          </div>
-          <div className="bg-slate-900 border border-amber-800/50 p-3 rounded-xl text-center">
-            <p className="text-[10px] uppercase font-bold text-amber-400">🟡 Reservados</p>
-            <p className="text-xl font-extrabold text-slate-100 mt-0.5">{summary.reservados}</p>
-          </div>
-          <div className="bg-slate-900 border border-orange-800/50 p-3 rounded-xl text-center">
-            <p className="text-[10px] uppercase font-bold text-orange-400">⚠️ Mantenimiento</p>
-            <p className="text-xl font-extrabold text-slate-100 mt-0.5">{summary.mantenimiento}</p>
-          </div>
-          <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl text-center col-span-2 sm:col-span-1">
-            <p className="text-[10px] uppercase font-bold text-sky-400">📊 Capacidad Total</p>
-            <p className="text-xl font-extrabold text-slate-100 mt-0.5">{summary.total}</p>
-          </div>
+          {summaryItems.map((item) => (
+            <div
+              key={item.key}
+              className={`bg-slate-900 border ${item.borderColor} p-3 rounded-xl text-center`}
+            >
+              <div className="flex items-center justify-center gap-1.5 mb-1">
+                <div className={`w-2 h-2 rounded-full ${item.dotColor}`} />
+                <p className={`text-[10px] uppercase font-bold ${item.textColor}`}>{item.label}</p>
+              </div>
+              <p className="text-xl font-extrabold text-slate-100">
+                {summary[item.key] ?? 0}
+              </p>
+            </div>
+          ))}
         </div>
       )}
 
@@ -197,7 +242,7 @@ export const SpacesPage: React.FC = () => {
           </div>
         ) : spaces.length === 0 ? (
           <div className="col-span-full p-8 text-center text-slate-500">
-            No hay espacios que coincidan con el filtro seleccionando.
+            No hay espacios que coincidan con el filtro seleccionado.
           </div>
         ) : (
           spaces.map((space) => {
@@ -241,7 +286,7 @@ export const SpacesPage: React.FC = () => {
         )}
       </div>
 
-      {/* Modal Cambiar Estado de Espacio */}
+      {/* Modal Cambiar Estado de Espacio — sin emojis */}
       <Modal
         isOpen={isStatusModalOpen}
         onClose={() => setIsStatusModalOpen(false)}
@@ -256,18 +301,26 @@ export const SpacesPage: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-slate-300 mb-1">Cambiar Estado del Espacio</label>
-            <select
-              value={newStatus}
-              onChange={(e) => setNewStatus(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-100 font-semibold"
-            >
-              <option value="DISPONIBLE">🟢 DISPONIBLE</option>
-              <option value="OCUPADO">🔴 OCUPADO</option>
-              <option value="RESERVADO">🟡 RESERVADO</option>
-              <option value="MANTENIMIENTO">⚠️ MANTENIMIENTO</option>
-              <option value="INACTIVO">⚪ INACTIVO</option>
-            </select>
+            <label className="block text-slate-300 mb-2 font-semibold">
+              Cambiar Estado del Espacio
+            </label>
+            <div className="space-y-1.5">
+              {statusOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setNewStatus(opt.value)}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all ${
+                    newStatus === opt.value
+                      ? 'bg-sky-950/60 border-sky-600 text-sky-200'
+                      : 'bg-slate-950 border-slate-700 text-slate-300 hover:bg-slate-800'
+                  }`}
+                >
+                  <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${opt.dotColor}`} />
+                  <span className="font-semibold">{opt.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
 
           <button

@@ -11,6 +11,8 @@ import {
   Calendar,
   Grid,
   RefreshCw,
+  LogIn,
+  LogOut,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -20,6 +22,7 @@ import {
   YAxis,
   Tooltip,
   Legend,
+  LabelList,
   PieChart,
   Pie,
   Cell,
@@ -30,6 +33,8 @@ const COLORS = ['#0284c7', '#10b981', '#f59e0b', '#8b5cf6'];
 export const DashboardPage: React.FC = () => {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showEntries, setShowEntries] = useState(true);
+  const [showExits, setShowExits] = useState(true);
 
   const fetchStats = async () => {
     setLoading(true);
@@ -59,6 +64,17 @@ export const DashboardPage: React.FC = () => {
   }
 
   const overview = stats?.overview;
+  const hourlyFlow = (stats?.charts?.flujoPorHoras || []).map((item) => ({
+    ...item,
+    entradas: Number(item.entradas) || 0,
+    salidas: Number(item.salidas) || 0,
+  }));
+  const hourlyFlowMax = Math.max(
+    5,
+    ...hourlyFlow.flatMap(({ entradas, salidas }) => [entradas, salidas]),
+  );
+  const totalHourlyEntries = hourlyFlow.reduce((total, item) => total + item.entradas, 0);
+  const totalHourlyExits = hourlyFlow.reduce((total, item) => total + item.salidas, 0);
 
   return (
     <div className="space-y-6">
@@ -171,24 +187,66 @@ export const DashboardPage: React.FC = () => {
       {/* Gráficos */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Flujo por Horas */}
-        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-200">
-              Flujo de Vehículos por Horas (Hoy)
-            </h3>
-            <span className="text-xs text-slate-500">Entradas vs Salidas</span>
+        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-7 space-y-5 shadow-xl">
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
+            <div>
+              <h3 className="text-lg font-bold text-slate-100">Flujo de vehículos por hora</h3>
+              <p className="text-xs text-slate-400 mt-1">Actividad operativa de hoy, de 7:00 a 20:00</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setShowEntries((visible) => !visible)}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${showEntries ? 'border-sky-500/40 bg-sky-500/10 text-sky-300' : 'border-slate-700 bg-slate-800 text-slate-500'}`}
+                aria-pressed={showEntries}
+              >
+                <LogIn className="h-4 w-4" />
+                Entradas
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowExits((visible) => !visible)}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${showExits ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' : 'border-slate-700 bg-slate-800 text-slate-500'}`}
+                aria-pressed={showExits}
+              >
+                <LogOut className="h-4 w-4" />
+                Salidas
+              </button>
+            </div>
           </div>
-          <div className="h-64 w-full">
+
+          <div className="grid grid-cols-2 gap-3 sm:max-w-md">
+            <div className="rounded-xl border border-sky-500/20 bg-sky-500/10 px-4 py-3">
+              <div className="flex items-center gap-2 text-xs text-sky-300"><LogIn className="h-4 w-4" /> Total entradas</div>
+              <p className="mt-1 text-2xl font-bold text-sky-200">{totalHourlyEntries}</p>
+            </div>
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
+              <div className="flex items-center gap-2 text-xs text-emerald-300"><LogOut className="h-4 w-4" /> Total salidas</div>
+              <p className="mt-1 text-2xl font-bold text-emerald-200">{totalHourlyExits}</p>
+            </div>
+          </div>
+
+          <div className="h-[26rem] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={stats?.charts.flujoPorHoras || []}>
-                <XAxis dataKey="hora" stroke="#64748b" fontSize={11} />
-                <YAxis stroke="#64748b" fontSize={11} />
+              <BarChart
+                data={hourlyFlow}
+                margin={{ top: 28, right: 16, left: 0, bottom: 12 }}
+                barCategoryGap="24%"
+                barGap={5}
+              >
+                <XAxis dataKey="hora" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={{ stroke: '#334155' }} />
+                <YAxis allowDecimals={false} domain={[0, hourlyFlowMax]} stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px' }}
+                  cursor={{ fill: '#1e293b', opacity: 0.45 }}
+                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#475569', borderRadius: '12px', color: '#f8fafc' }}
+                  labelStyle={{ color: '#cbd5e1', fontWeight: 600, marginBottom: 6 }}
                 />
-                <Legend />
-                <Bar dataKey="entradas" fill="#0284c7" name="Entradas" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="salidas" fill="#10b981" name="Salidas" radius={[4, 4, 0, 0]} />
+                {showEntries && <Bar dataKey="entradas" fill="#0ea5e9" name="Entradas" barSize={26} radius={[6, 6, 0, 0]}>
+                  <LabelList dataKey="entradas" position="top" fill="#7dd3fc" fontSize={12} formatter={(value) => value === 0 ? '' : value} />
+                </Bar>}
+                {showExits && <Bar dataKey="salidas" fill="#10b981" name="Salidas" barSize={26} radius={[6, 6, 0, 0]}>
+                  <LabelList dataKey="salidas" position="top" fill="#6ee7b7" fontSize={12} formatter={(value) => value === 0 ? '' : value} />
+                </Bar>}
               </BarChart>
             </ResponsiveContainer>
           </div>

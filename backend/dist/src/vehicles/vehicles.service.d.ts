@@ -4,7 +4,7 @@ import { UpdateVehicleDto } from './dto/update-vehicle.dto';
 export declare class VehiclesService {
     private prisma;
     constructor(prisma: PrismaService);
-    findAll(search?: string, type?: string, status?: string): Promise<({
+    findAll(search?: string, type?: string, status?: string, userId?: string): Promise<({
         movements: {
             id: string;
             space: {

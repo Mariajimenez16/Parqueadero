@@ -5,6 +5,7 @@ import { Badge } from '../components/common/Badge';
 import { Modal } from '../components/common/Modal';
 import { Toast } from '../components/common/Toast';
 import { QRGeneratorModal } from '../components/common/QRGeneratorModal';
+import { useAuth } from '../context/AuthContext';
 import { Car, Plus, Search, QrCode, ShieldCheck, ShieldAlert, Edit, User as UserIcon } from 'lucide-react';
 
 export const VehiclesPage: React.FC = () => {
@@ -19,6 +20,9 @@ export const VehiclesPage: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [qrModalVehicle, setQrModalVehicle] = useState<Vehicle | null>(null);
+
+  const { user: currentUser } = useAuth();
+  const isUserRole = currentUser?.role === 'USUARIO';
 
   // Form State
   const [formData, setFormData] = useState({
@@ -36,12 +40,20 @@ export const VehiclesPage: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [vRes, uRes] = await Promise.all([
+      const requests: Promise<any>[] = [
         api.get('/vehicles', { params: { search, type: typeFilter, status: statusFilter } }),
-        api.get('/users'),
-      ]);
-      setVehicles(vRes.data);
-      setUsers(uRes.data);
+      ];
+
+      // Solo si es personal administrativo se carga la lista de todos los usuarios
+      if (!isUserRole) {
+        requests.push(api.get('/users'));
+      }
+
+      const results = await Promise.all(requests);
+      setVehicles(results[0].data);
+      if (!isUserRole && results[1]) {
+        setUsers(results[1].data);
+      }
     } catch (err: any) {
       setToast({ type: 'error', message: err.message });
     } finally {
@@ -61,7 +73,7 @@ export const VehiclesPage: React.FC = () => {
       marca: '',
       modelo: '',
       color: '',
-      userId: users[0]?.id || '',
+      userId: isUserRole ? (currentUser?.id || '') : (users[0]?.id || ''),
       status: 'AUTORIZADO',
     });
     setIsModalOpen(true);
@@ -84,11 +96,17 @@ export const VehiclesPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const payload = {
+        ...formData,
+        userId: isUserRole ? currentUser?.id : formData.userId,
+        status: isUserRole ? 'AUTORIZADO' : formData.status,
+      };
+
       if (selectedVehicle) {
-        await api.put(`/vehicles/${selectedVehicle.id}`, formData);
+        await api.put(`/vehicles/${selectedVehicle.id}`, payload);
         setToast({ type: 'success', message: 'Vehículo actualizado exitosamente.' });
       } else {
-        await api.post('/vehicles', formData);
+        await api.post('/vehicles', payload);
         setToast({ type: 'success', message: 'Vehículo registrado exitosamente.' });
       }
       setIsModalOpen(false);
@@ -122,10 +140,12 @@ export const VehiclesPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
             <Car className="w-6 h-6 text-sky-400" />
-            Gestión de Vehículos y Tarjetas QR
+            {isUserRole ? 'Mis Vehículos Registrados' : 'Gestión de Vehículos y Tarjetas QR'}
           </h1>
           <p className="text-xs text-slate-400">
-            Registro, autorización y carnetización por código QR para automóviles y motocicletas
+            {isUserRole
+              ? 'Registra tu automóvil o motocicleta para acceder al parqueadero y generar tu carnet QR'
+              : 'Registro, autorización y carnetización por código QR para automóviles y motocicletas'}
           </p>
         </div>
 
@@ -134,7 +154,7 @@ export const VehiclesPage: React.FC = () => {
           className="flex items-center gap-2 px-4 py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl font-semibold text-xs transition-all shadow-lg shadow-sky-900/30 w-fit"
         >
           <Plus className="w-4 h-4" />
-          <span>Registrar Nuevo Vehículo</span>
+          <span>{isUserRole ? 'Registrar Mi Vehículo' : 'Registrar Nuevo Vehículo'}</span>
         </button>
       </div>
 
@@ -143,7 +163,7 @@ export const VehiclesPage: React.FC = () => {
         <div className="relative">
           <input
             type="text"
-            placeholder="Buscar por Placa, Marca, Modelo o Propietario..."
+            placeholder={isUserRole ? "Buscar por Placa, Marca o Modelo..." : "Buscar por Placa, Marca, Modelo o Propietario..."}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 pl-10 text-slate-100 text-xs placeholder-slate-500 focus:outline-none focus:border-sky-500 font-mono"
@@ -184,7 +204,7 @@ export const VehiclesPage: React.FC = () => {
                 <th className="p-4">Placa / Tipo</th>
                 <th className="p-4">Marca y Modelo</th>
                 <th className="p-4">Color</th>
-                <th className="p-4">Propietario</th>
+                {!isUserRole && <th className="p-4">Propietario</th>}
                 <th className="p-4">Estado Recinto</th>
                 <th className="p-4">Autorización</th>
                 <th className="p-4 text-right">Acciones</th>
@@ -193,14 +213,16 @@ export const VehiclesPage: React.FC = () => {
             <tbody className="divide-y divide-slate-800/60">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-slate-500">
+                  <td colSpan={isUserRole ? 6 : 7} className="p-8 text-center text-slate-500">
                     Cargando vehículos...
                   </td>
                 </tr>
               ) : vehicles.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-slate-500">
-                    No se encontraron vehículos registrados.
+                  <td colSpan={isUserRole ? 6 : 7} className="p-8 text-center text-slate-500">
+                    {isUserRole
+                      ? 'No tienes ningún vehículo registrado todavía. Registra tu vehículo para empezar.'
+                      : 'No se encontraron vehículos registrados.'}
                   </td>
                 </tr>
               ) : (
@@ -217,20 +239,22 @@ export const VehiclesPage: React.FC = () => {
                       <div className="text-[11px] text-slate-400">{v.modelo}</div>
                     </td>
                     <td className="p-4 font-medium text-slate-300">{v.color}</td>
-                    <td className="p-4">
-                      {v.user ? (
-                        <div>
-                          <div className="font-medium text-slate-200">
-                            {v.user.nombre} {v.user.apellidos}
+                    {!isUserRole && (
+                      <td className="p-4">
+                        {v.user ? (
+                          <div>
+                            <div className="font-medium text-slate-200">
+                              {v.user.nombre} {v.user.apellidos}
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              Doc: {v.user.documento} ({v.user.userType})
+                            </div>
                           </div>
-                          <div className="text-[10px] text-slate-400">
-                            Doc: {v.user.documento} ({v.user.userType})
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-slate-500">Sin propietario</span>
-                      )}
-                    </td>
+                        ) : (
+                          <span className="text-slate-500">Sin propietario</span>
+                        )}
+                      </td>
+                    )}
                     <td className="p-4">
                       {v.movements && v.movements.length > 0 ? (
                         <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded-md border border-emerald-800">
@@ -262,22 +286,24 @@ export const VehiclesPage: React.FC = () => {
                           <Edit className="w-4 h-4" />
                         </button>
 
-                        {v.status === 'AUTORIZADO' ? (
-                          <button
-                            onClick={() => handleToggleAuth(v.id, 'NO_AUTORIZADO')}
-                            title="Revocar Autorización"
-                            className="p-1.5 hover:bg-red-950 text-red-400 rounded-lg transition-colors"
-                          >
-                            <ShieldAlert className="w-4 h-4" />
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleToggleAuth(v.id, 'AUTORIZADO')}
-                            title="Autorizar Vehículo"
-                            className="p-1.5 hover:bg-emerald-950 text-emerald-400 rounded-lg transition-colors"
-                          >
-                            <ShieldCheck className="w-4 h-4" />
-                          </button>
+                        {!isUserRole && (
+                          v.status === 'AUTORIZADO' ? (
+                            <button
+                              onClick={() => handleToggleAuth(v.id, 'NO_AUTORIZADO')}
+                              title="Revocar Autorización"
+                              className="p-1.5 hover:bg-red-950 text-red-400 rounded-lg transition-colors"
+                            >
+                              <ShieldAlert className="w-4 h-4" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleToggleAuth(v.id, 'AUTORIZADO')}
+                              title="Autorizar Vehículo"
+                              className="p-1.5 hover:bg-emerald-950 text-emerald-400 rounded-lg transition-colors"
+                            >
+                              <ShieldCheck className="w-4 h-4" />
+                            </button>
+                          )
                         )}
                       </div>
                     </td>
@@ -293,16 +319,16 @@ export const VehiclesPage: React.FC = () => {
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title={selectedVehicle ? 'Editar Vehículo' : 'Registrar Nuevo Vehículo'}
+        title={selectedVehicle ? 'Editar Vehículo' : (isUserRole ? 'Registrar Mi Vehículo' : 'Registrar Nuevo Vehículo')}
       >
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-slate-300 mb-1">Placa del Vehículo</label>
+              <label className="block text-slate-300 mb-1 font-semibold">Placa del Vehículo</label>
               <input
                 type="text"
                 required
-                placeholder="Ej: KLR-456"
+                placeholder="Ej: ABC-123"
                 value={formData.placa}
                 onChange={(e) => setFormData({ ...formData, placa: e.target.value.toUpperCase() })}
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono tracking-wider text-sm uppercase"
@@ -310,7 +336,7 @@ export const VehiclesPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-slate-300 mb-1">Tipo de Vehículo</label>
+              <label className="block text-slate-300 mb-1 font-semibold">Tipo de Vehículo</label>
               <select
                 value={formData.type}
                 onChange={(e) => setFormData({ ...formData, type: e.target.value })}
@@ -326,7 +352,7 @@ export const VehiclesPage: React.FC = () => {
 
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-slate-300 mb-1">Marca</label>
+              <label className="block text-slate-300 mb-1 font-semibold">Marca</label>
               <input
                 type="text"
                 required
@@ -337,7 +363,7 @@ export const VehiclesPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-slate-300 mb-1">Modelo</label>
+              <label className="block text-slate-300 mb-1 font-semibold">Modelo</label>
               <input
                 type="text"
                 required
@@ -348,7 +374,7 @@ export const VehiclesPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-slate-300 mb-1">Color</label>
+              <label className="block text-slate-300 mb-1 font-semibold">Color</label>
               <input
                 type="text"
                 required
@@ -360,33 +386,46 @@ export const VehiclesPage: React.FC = () => {
             </div>
           </div>
 
-          <div>
-            <label className="block text-slate-300 mb-1">Usuario Propietario</label>
-            <select
-              value={formData.userId}
-              onChange={(e) => setFormData({ ...formData, userId: e.target.value })}
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-100"
-            >
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.nombre} {u.apellidos} — Doc: {u.documento} ({u.userType})
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* Propietario */}
+          {isUserRole ? (
+            <div>
+              <label className="block text-slate-300 mb-1 font-semibold">Propietario Registrado</label>
+              <div className="w-full bg-slate-950/60 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-300 font-medium">
+                {currentUser?.nombre} {currentUser?.apellidos} (Doc: {currentUser?.documento})
+              </div>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-slate-300 mb-1 font-semibold">Usuario Propietario</label>
+              <select
+                value={formData.userId}
+                onChange={(e) => setFormData({ ...formData, userId: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-100"
+              >
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.nombre} {u.apellidos} — Doc: {u.documento} ({u.userType})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
-          <div>
-            <label className="block text-slate-300 mb-1">Estado de Autorización</label>
-            <select
-              value={formData.status}
-              onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-100"
-            >
-              <option value="AUTORIZADO">AUTORIZADO</option>
-              <option value="NO_AUTORIZADO">NO AUTORIZADO</option>
-              <option value="INACTIVO">INACTIVO</option>
-            </select>
-          </div>
+          {/* Estado de Autorización (solo para personal administrativo) */}
+          {!isUserRole && (
+            <div>
+              <label className="block text-slate-300 mb-1 font-semibold">Estado de Autorización</label>
+              <select
+                value={formData.status}
+                onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-100"
+              >
+                <option value="AUTORIZADO">AUTORIZADO</option>
+                <option value="NO_AUTORIZADO">NO AUTORIZADO</option>
+                <option value="INACTIVO">INACTIVO</option>
+              </select>
+            </div>
+          )}
 
           <button
             type="submit"

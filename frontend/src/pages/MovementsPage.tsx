@@ -12,11 +12,27 @@ import {
   Search,
   Clock,
   CheckCircle2,
-  AlertCircle,
-  ShieldCheck,
   RefreshCw,
   History,
+  AlertTriangle,
 } from 'lucide-react';
+
+/** Calcula el tiempo transcurrido desde una fecha de entrada */
+const getElapsedTime = (entryTime: string): string => {
+  const diffMs = Date.now() - new Date(entryTime).getTime();
+  const totalMinutes = Math.floor(diffMs / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours === 0) return `${minutes} min`;
+  return `${hours}h ${minutes}m`;
+};
+
+/** Retorna true si el vehículo lleva más de 8 horas dentro */
+const isLongStay = (entryTime: string): boolean => {
+  const diffMs = Date.now() - new Date(entryTime).getTime();
+  return diffMs > 8 * 60 * 60 * 1000;
+};
 
 export const MovementsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
@@ -29,9 +45,8 @@ export const MovementsPage: React.FC = () => {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scanAction, setScanAction] = useState<'entry' | 'exit'>('entry');
 
-  // Input states
-  const [identifierInput, setIdentifierInput] = useState('');
-  const [observacionesInput, setObservacionesInput] = useState('');
+  // Input manual de placa
+  const [manualPlaca, setManualPlaca] = useState('');
   const [processing, setProcessing] = useState(false);
 
   // Result Summary Modal
@@ -60,15 +75,15 @@ export const MovementsPage: React.FC = () => {
   }, [activeTab, search]);
 
   const handleRegisterEntry = async (identifier: string) => {
+    if (!identifier.trim()) return;
     setProcessing(true);
     try {
       const res = await api.post('/movements/entry', {
-        identifier,
-        observaciones: observacionesInput || 'Ingreso registrado vía torniquete QR',
+        identifier: identifier.trim().toUpperCase(),
+        observaciones: 'Ingreso registrado vía torniquete QR',
       });
       setToast({ type: 'success', message: res.data.message });
-      setIdentifierInput('');
-      setObservacionesInput('');
+      setManualPlaca('');
       fetchMovements();
     } catch (err: any) {
       setToast({ type: 'error', message: err.message });
@@ -78,16 +93,16 @@ export const MovementsPage: React.FC = () => {
   };
 
   const handleRegisterExit = async (identifier: string) => {
+    if (!identifier.trim()) return;
     setProcessing(true);
     try {
       const res = await api.post('/movements/exit', {
-        identifier,
-        observaciones: observacionesInput || 'Salida registrada en garita',
+        identifier: identifier.trim().toUpperCase(),
+        observaciones: 'Salida registrada en garita',
       });
       setExitSummary(res.data.summary);
       setToast({ type: 'success', message: res.data.message });
-      setIdentifierInput('');
-      setObservacionesInput('');
+      setManualPlaca('');
       fetchMovements();
     } catch (err: any) {
       setToast({ type: 'error', message: err.message });
@@ -101,6 +116,18 @@ export const MovementsPage: React.FC = () => {
       handleRegisterEntry(decoded);
     } else {
       handleRegisterExit(decoded);
+    }
+  };
+
+  const handleManualSubmit = (action: 'entry' | 'exit') => {
+    if (!manualPlaca.trim()) {
+      setToast({ type: 'error', message: 'Ingrese una placa válida para continuar.' });
+      return;
+    }
+    if (action === 'entry') {
+      handleRegisterEntry(manualPlaca);
+    } else {
+      handleRegisterExit(manualPlaca);
     }
   };
 
@@ -135,56 +162,90 @@ export const MovementsPage: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Registro de ENTRADA */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 bg-emerald-950/80 border border-emerald-800 rounded-xl flex items-center justify-center text-emerald-400">
-                <LogIn className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-100 text-sm">Registrar Entrada de Vehículo</h3>
-                <p className="text-[11px] text-slate-400">Valida vehículo, usuario y asigna espacio</p>
-              </div>
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 bg-emerald-950/80 border border-emerald-800 rounded-xl flex items-center justify-center text-emerald-400">
+              <LogIn className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-100 text-sm">Registrar Entrada de Vehículo</h3>
+              <p className="text-[11px] text-slate-400">Valida vehículo, usuario y asigna espacio</p>
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2">
+            {/* Campo de placa manual */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Placa del vehículo (ej: ABC-123)"
+                value={manualPlaca}
+                onChange={(e) => setManualPlaca(e.target.value.toUpperCase())}
+                onKeyDown={(e) => e.key === 'Enter' && handleManualSubmit('entry')}
+                className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-100 text-xs placeholder-slate-500 font-mono tracking-widest uppercase focus:outline-none focus:border-emerald-500"
+              />
+              <button
+                onClick={() => handleManualSubmit('entry')}
+                disabled={processing || !manualPlaca.trim()}
+                className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-all"
+              >
+                Registrar
+              </button>
+            </div>
+
             <button
               onClick={() => {
                 setScanAction('entry');
                 setIsScannerOpen(true);
               }}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 rounded-xl transition-all shadow-lg shadow-emerald-900/30 flex items-center justify-center gap-2 text-xs"
+              className="w-full bg-emerald-600/10 hover:bg-emerald-600/20 border border-emerald-700/40 text-emerald-400 font-semibold py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 text-xs"
             >
               <QrCode className="w-4 h-4" />
-              <span>Escanear QR o Ingresar Placa para ENTRADA</span>
+              <span>Escanear Codigo QR para Entrada</span>
             </button>
           </div>
         </div>
 
         {/* Registro de SALIDA */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 bg-sky-950/80 border border-sky-800 rounded-xl flex items-center justify-center text-sky-400">
-                <LogOut className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-100 text-sm">Registrar Salida de Vehículo</h3>
-                <p className="text-[11px] text-slate-400">Calcula tarifa, libera espacio y crea cobro</p>
-              </div>
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 bg-sky-950/80 border border-sky-800 rounded-xl flex items-center justify-center text-sky-400">
+              <LogOut className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-100 text-sm">Registrar Salida de Vehículo</h3>
+              <p className="text-[11px] text-slate-400">Calcula tarifa, libera espacio y crea cobro</p>
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2">
+            {/* Campo de placa manual */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Placa del vehículo (ej: ABC-123)"
+                value={manualPlaca}
+                onChange={(e) => setManualPlaca(e.target.value.toUpperCase())}
+                onKeyDown={(e) => e.key === 'Enter' && handleManualSubmit('exit')}
+                className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-100 text-xs placeholder-slate-500 font-mono tracking-widest uppercase focus:outline-none focus:border-sky-500"
+              />
+              <button
+                onClick={() => handleManualSubmit('exit')}
+                disabled={processing || !manualPlaca.trim()}
+                className="px-4 py-2.5 bg-sky-700 hover:bg-sky-600 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-all"
+              >
+                Registrar
+              </button>
+            </div>
+
             <button
               onClick={() => {
                 setScanAction('exit');
                 setIsScannerOpen(true);
               }}
-              className="w-full bg-sky-600 hover:bg-sky-500 text-white font-semibold py-3 rounded-xl transition-all shadow-lg shadow-sky-900/30 flex items-center justify-center gap-2 text-xs"
+              className="w-full bg-sky-600/10 hover:bg-sky-600/20 border border-sky-700/40 text-sky-400 font-semibold py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 text-xs"
             >
               <QrCode className="w-4 h-4" />
-              <span>Escanear QR o Buscar Placa para SALIDA</span>
+              <span>Escanear Codigo QR para Salida</span>
             </button>
           </div>
         </div>
@@ -241,9 +302,10 @@ export const MovementsPage: React.FC = () => {
                 <th className="p-4">Usuario</th>
                 <th className="p-4">Espacio Asignado</th>
                 <th className="p-4">Hora de Entrada</th>
+                {activeTab === 'active' && <th className="p-4">Tiempo en Recinto</th>}
                 {activeTab === 'history' && <th className="p-4">Hora de Salida</th>}
                 <th className="p-4">Operador</th>
-                <th className="p-4 text-right">Acción Salida</th>
+                <th className="p-4 text-right">Accion Salida</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
@@ -257,7 +319,7 @@ export const MovementsPage: React.FC = () => {
                 <tr>
                   <td colSpan={7} className="p-8 text-center text-slate-500">
                     {activeTab === 'active'
-                      ? 'No hay ningún vehículo actualmente dentro del recinto.'
+                      ? 'No hay ningun vehiculo actualmente dentro del recinto.'
                       : 'No se encontraron movimientos registrados.'}
                   </td>
                 </tr>
@@ -289,6 +351,25 @@ export const MovementsPage: React.FC = () => {
                         {new Date(m.entryTime).toLocaleDateString()}
                       </div>
                     </td>
+                    {/* Columna de duración activa (solo en tab "active") */}
+                    {activeTab === 'active' && (
+                      <td className="p-4">
+                        <div
+                          className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-semibold ${
+                            isLongStay(m.entryTime)
+                              ? 'bg-amber-950/60 border border-amber-800/60 text-amber-300'
+                              : 'bg-slate-800 text-slate-300'
+                          }`}
+                        >
+                          {isLongStay(m.entryTime) ? (
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          ) : (
+                            <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          )}
+                          <span>{getElapsedTime(m.entryTime)}</span>
+                        </div>
+                      </td>
+                    )}
                     {activeTab === 'history' && (
                       <td className="p-4 font-mono text-slate-300">
                         {m.exitTime
@@ -331,11 +412,11 @@ export const MovementsPage: React.FC = () => {
 
             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2 text-xs">
               <div className="flex justify-between border-b border-slate-800/80 pb-2">
-                <span className="text-slate-400">Factura Nº:</span>
+                <span className="text-slate-400">Factura N.:</span>
                 <span className="font-mono font-bold text-sky-400">{exitSummary.numeroFactura}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">Vehículo:</span>
+                <span className="text-slate-400">Vehiculo:</span>
                 <span className="font-mono font-bold text-slate-200">{exitSummary.placa}</span>
               </div>
               <div className="flex justify-between">
@@ -343,8 +424,10 @@ export const MovementsPage: React.FC = () => {
                 <span className="text-slate-200">{exitSummary.usuario}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">Duración:</span>
-                <span className="text-slate-200 font-semibold">{exitSummary.duracionMinutos} min ({exitSummary.horasFacturables} hrs)</span>
+                <span className="text-slate-400">Duracion:</span>
+                <span className="text-slate-200 font-semibold">
+                  {exitSummary.duracionMinutos} min ({exitSummary.horasFacturables} hrs)
+                </span>
               </div>
               <div className="flex justify-between border-t border-slate-800/80 pt-2 text-sm font-bold">
                 <span className="text-slate-200">Total a Pagar:</span>

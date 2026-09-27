@@ -19,7 +19,7 @@ export class MovementsController {
   }
 
   @Get('history')
-  @Roles('ADMIN', 'VIGILANTE')
+  @Roles('ADMIN', 'VIGILANTE', 'CAJERO')
   async getHistory(
     @Query('search') search?: string,
     @Query('dateFrom') dateFrom?: string,
@@ -29,7 +29,7 @@ export class MovementsController {
   }
 
   @Post('entry')
-  @Roles('ADMIN', 'VIGILANTE')
+  @Roles('ADMIN', 'VIGILANTE', 'CAJERO')
   async registerEntry(
     @Body() dto: RegisterEntryDto,
     @GetUser('id') operatorId: string,
@@ -38,7 +38,7 @@ export class MovementsController {
   }
 
   @Post('exit')
-  @Roles('ADMIN', 'VIGILANTE')
+  @Roles('ADMIN', 'VIGILANTE', 'CAJERO')
   async registerExit(
     @Body() dto: RegisterExitDto,
     @GetUser('id') operatorId: string,

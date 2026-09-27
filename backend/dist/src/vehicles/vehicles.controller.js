@@ -25,8 +25,9 @@ let VehiclesController = class VehiclesController {
     constructor(vehiclesService) {
         this.vehiclesService = vehiclesService;
     }
-    async findAll(search, type, status) {
-        return this.vehiclesService.findAll(search, type, status);
+    async findAll(user, search, type, status) {
+        const filterUserId = user.role === 'USUARIO' ? user.id : undefined;
+        return this.vehiclesService.findAll(search, type, status, filterUserId);
     }
     async findByIdentifier(identifier) {
         return this.vehiclesService.findByIdentifier(identifier);
@@ -34,8 +35,11 @@ let VehiclesController = class VehiclesController {
     async findOne(id) {
         return this.vehiclesService.findOne(id);
     }
-    async create(createVehicleDto, userId) {
-        return this.vehiclesService.create(createVehicleDto, userId);
+    async create(createVehicleDto, user) {
+        if (user.role === 'USUARIO' || !createVehicleDto.userId) {
+            createVehicleDto.userId = user.id;
+        }
+        return this.vehiclesService.create(createVehicleDto, user.id);
     }
     async update(id, updateVehicleDto, userId) {
         return this.vehiclesService.update(id, updateVehicleDto, userId);
@@ -47,12 +51,13 @@ let VehiclesController = class VehiclesController {
 exports.VehiclesController = VehiclesController;
 __decorate([
     (0, common_1.Get)(),
-    (0, roles_decorator_1.Roles)('ADMIN', 'VIGILANTE', 'CAJERO'),
-    __param(0, (0, common_1.Query)('search')),
-    __param(1, (0, common_1.Query)('type')),
-    __param(2, (0, common_1.Query)('status')),
+    (0, roles_decorator_1.Roles)('ADMIN', 'VIGILANTE', 'CAJERO', 'USUARIO'),
+    __param(0, (0, get_user_decorator_1.GetUser)()),
+    __param(1, (0, common_1.Query)('search')),
+    __param(2, (0, common_1.Query)('type')),
+    __param(3, (0, common_1.Query)('status')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String, String]),
+    __metadata("design:paramtypes", [Object, String, String, String]),
     __metadata("design:returntype", Promise)
 ], VehiclesController.prototype, "findAll", null);
 __decorate([
@@ -75,9 +80,9 @@ __decorate([
     (0, common_1.Post)(),
     (0, roles_decorator_1.Roles)('ADMIN', 'USUARIO'),
     __param(0, (0, common_1.Body)()),
-    __param(1, (0, get_user_decorator_1.GetUser)('id')),
+    __param(1, (0, get_user_decorator_1.GetUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [create_vehicle_dto_1.CreateVehicleDto, String]),
+    __metadata("design:paramtypes", [create_vehicle_dto_1.CreateVehicleDto, Object]),
     __metadata("design:returntype", Promise)
 ], VehiclesController.prototype, "create", null);
 __decorate([

@@ -4,7 +4,8 @@ import { Reservation, User, Vehicle, Space } from '../types';
 import { Badge } from '../components/common/Badge';
 import { Modal } from '../components/common/Modal';
 import { Toast } from '../components/common/Toast';
-import { CalendarCheck, Plus, Calendar, Clock, Car, Grid, XCircle } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { CalendarCheck, Plus, XCircle } from 'lucide-react';
 
 export const ReservationsPage: React.FC = () => {
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -15,6 +16,9 @@ export const ReservationsPage: React.FC = () => {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState('');
+
+  const { user: currentUser, hasRole } = useAuth();
+  const isAdmin = hasRole('ADMIN');
 
   const [formData, setFormData] = useState({
     userId: '',
@@ -31,16 +35,25 @@ export const ReservationsPage: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [rRes, uRes, vRes, sRes] = await Promise.all([
+      const requests: Promise<any>[] = [
         api.get('/reservations', { params: { status: statusFilter } }),
-        api.get('/users'),
         api.get('/vehicles'),
         api.get('/spaces', { params: { estado: 'DISPONIBLE' } }),
-      ]);
-      setReservations(rRes.data);
-      setUsers(uRes.data);
-      setVehicles(vRes.data);
-      setSpaces(sRes.data);
+      ];
+
+      // Solo ADMIN puede ver todos los usuarios en el selector
+      if (isAdmin) {
+        requests.push(api.get('/users'));
+      }
+
+      const results = await Promise.all(requests);
+
+      setReservations(results[0].data);
+      setVehicles(results[1].data);
+      setSpaces(results[2].data);
+      if (isAdmin) {
+        setUsers(results[3].data);
+      }
     } catch (err: any) {
       setToast({ type: 'error', message: err.message });
     } finally {
@@ -54,7 +67,9 @@ export const ReservationsPage: React.FC = () => {
 
   const handleOpenCreate = () => {
     setFormData({
-      userId: users[0]?.id || '',
+      // USUARIO: el userId siempre es el del usuario autenticado
+      // ADMIN: puede elegir cualquier usuario
+      userId: isAdmin ? (users[0]?.id || '') : (currentUser?.id || ''),
       vehicleId: vehicles[0]?.id || '',
       spaceId: spaces[0]?.id || '',
       fecha: new Date().toISOString().split('T')[0],
@@ -71,8 +86,11 @@ export const ReservationsPage: React.FC = () => {
       const startIso = `${formData.fecha}T${formData.horaInicio}:00Z`;
       const endIso = `${formData.fecha}T${formData.horaFin}:00Z`;
 
+      // Para USUARIO: forzar su propio ID independientemente de lo que haya en el form
+      const userId = isAdmin ? formData.userId : (currentUser?.id || '');
+
       await api.post('/reservations', {
-        userId: formData.userId,
+        userId,
         vehicleId: formData.vehicleId,
         spaceId: formData.spaceId,
         fecha: formData.fecha,
@@ -110,10 +128,12 @@ export const ReservationsPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
             <CalendarCheck className="w-6 h-6 text-sky-400" />
-            Gestión de Reservas
+            {isAdmin ? 'Gestión de Reservas' : 'Mis Reservas'}
           </h1>
           <p className="text-xs text-slate-400">
-            Reserva de espacios con control estricto anti-solapamientos y disponibilidad
+            {isAdmin
+              ? 'Reserva de espacios con control estricto anti-solapamientos y disponibilidad'
+              : 'Consulta y gestiona las reservas de tus vehículos en el parqueadero'}
           </p>
         </div>
 
@@ -122,7 +142,7 @@ export const ReservationsPage: React.FC = () => {
           className="flex items-center gap-2 px-4 py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl font-semibold text-xs transition-all shadow-lg shadow-sky-900/30 w-fit"
         >
           <Plus className="w-4 h-4" />
-          <span>Crear Nueva Reserva</span>
+          <span>Nueva Reserva</span>
         </button>
       </div>
 
@@ -147,12 +167,12 @@ export const ReservationsPage: React.FC = () => {
             <thead className="bg-slate-950/80 text-slate-400 uppercase font-semibold text-[11px] border-b border-slate-800">
               <tr>
                 <th className="p-4">Usuario</th>
-                <th className="p-4">Vehículo</th>
+                <th className="p-4">Vehiculo</th>
                 <th className="p-4">Espacio Reservado</th>
                 <th className="p-4">Fecha</th>
                 <th className="p-4">Horario (Inicio - Fin)</th>
                 <th className="p-4">Estado</th>
-                <th className="p-4 text-right">Acción</th>
+                <th className="p-4 text-right">Accion</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
@@ -165,7 +185,9 @@ export const ReservationsPage: React.FC = () => {
               ) : reservations.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="p-8 text-center text-slate-500">
-                    No se encontraron reservas registradas.
+                    {isAdmin
+                      ? 'No se encontraron reservas registradas.'
+                      : 'No tienes reservas activas. Crea una nueva reserva para tu vehiculo.'}
                   </td>
                 </tr>
               ) : (
@@ -192,7 +214,8 @@ export const ReservationsPage: React.FC = () => {
                       {new Date(r.fecha).toLocaleDateString()}
                     </td>
                     <td className="p-4 font-mono text-slate-300">
-                      {new Date(r.horaInicio).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} -{' '}
+                      {new Date(r.horaInicio).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{' '}
+                      —{' '}
                       {new Date(r.horaFin).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </td>
                     <td className="p-4">
@@ -220,23 +243,36 @@ export const ReservationsPage: React.FC = () => {
       {/* Modal Crear Reserva */}
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Crear Reserva de Espacio">
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-          <div>
-            <label className="block text-slate-300 mb-1">Usuario</label>
-            <select
-              value={formData.userId}
-              onChange={(e) => setFormData({ ...formData, userId: e.target.value })}
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
-            >
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.nombre} {u.apellidos} — Doc: {u.documento}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* Solo ADMIN puede seleccionar el usuario */}
+          {isAdmin && (
+            <div>
+              <label className="block text-slate-300 mb-1 font-semibold">Usuario</label>
+              <select
+                value={formData.userId}
+                onChange={(e) => setFormData({ ...formData, userId: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+              >
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.nombre} {u.apellidos} — Doc: {u.documento}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Para USUARIO: mostrar solo su nombre como referencia (solo lectura) */}
+          {!isAdmin && currentUser && (
+            <div>
+              <label className="block text-slate-300 mb-1 font-semibold">Reserva para</label>
+              <div className="w-full bg-slate-950/60 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-300 text-xs">
+                {currentUser.nombre} {currentUser.apellidos}
+              </div>
+            </div>
+          )}
 
           <div>
-            <label className="block text-slate-300 mb-1">Vehículo Autorizado</label>
+            <label className="block text-slate-300 mb-1 font-semibold">Vehiculo Autorizado</label>
             <select
               value={formData.vehicleId}
               onChange={(e) => setFormData({ ...formData, vehicleId: e.target.value })}
@@ -251,7 +287,7 @@ export const ReservationsPage: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-slate-300 mb-1">Espacio Disponible</label>
+            <label className="block text-slate-300 mb-1 font-semibold">Espacio Disponible</label>
             <select
               value={formData.spaceId}
               onChange={(e) => setFormData({ ...formData, spaceId: e.target.value })}
@@ -267,7 +303,7 @@ export const ReservationsPage: React.FC = () => {
 
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-slate-300 mb-1">Fecha</label>
+              <label className="block text-slate-300 mb-1 font-semibold">Fecha</label>
               <input
                 type="date"
                 required
@@ -277,7 +313,7 @@ export const ReservationsPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-slate-300 mb-1">Hora Inicio</label>
+              <label className="block text-slate-300 mb-1 font-semibold">Hora Inicio</label>
               <input
                 type="time"
                 required
@@ -287,7 +323,7 @@ export const ReservationsPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-slate-300 mb-1">Hora Fin</label>
+              <label className="block text-slate-300 mb-1 font-semibold">Hora Fin</label>
               <input
                 type="time"
                 required
@@ -299,10 +335,10 @@ export const ReservationsPage: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-slate-300 mb-1">Observaciones</label>
+            <label className="block text-slate-300 mb-1 font-semibold">Observaciones (opcional)</label>
             <input
               type="text"
-              placeholder="Ej: Reserva para jornada académica"
+              placeholder="Ej: Reserva para jornada academica"
               value={formData.observaciones}
               onChange={(e) => setFormData({ ...formData, observaciones: e.target.value })}
               className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
