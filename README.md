@@ -154,3 +154,19 @@ npm run test
    - Volver a iniciar sesión como `ADMIN`.
    - Ir a **Reportes y Exportación**.
    - Presionar **Exportar PDF** y **Exportar Excel** para demostrar la descarga efectiva de informes estructurados con totales e información institucional.
+
+
+
+  ---
+
+  ## 📖 7. DOCUMENTACIÓN TÉCNICA DETALLADA
+
+  Además de este README, el proyecto incluye documentación técnica generada automáticamente:
+  
+  - `docs/architecture.md` → Diagrama y descripción de arquitectura
+  - `docs/database.md` → Esquema de base de datos y relaciones
+  - `docs/api.md` → Referencia de endpoints del backend
+  - `docs/security.md` → Autenticación JWT, RBAC, auditoría
+  - `diagrams/` → Diagramas Mermaid (arquitectura, workflows, dependencias)
+  
+  Esta documentación sirve como referencia técnica para la revisión del código fuente.
