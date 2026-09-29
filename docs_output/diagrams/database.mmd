@@ -1,0 +1,9 @@
+erDiagram
+    DOCUMENTS {
+        id INTEGER PK "Primary identifier"
+        content TEXT "Document content"
+        created_at TIMESTAMP "Creation timestamp"
+    }
+    DOCUMENTS ||--o{ VERSIONS : "has many"
+    
+    note[💡 Database Schema<br/>No tables detected - analyze codebase to generate schema]

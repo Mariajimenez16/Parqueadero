@@ -1,0 +1,78 @@
+flowchart LR
+    %% Professional Workflow Diagram
+    %% AI-Enhanced with Project-Specific Insights
+    
+    subgraph Client[👤 Client]
+        direction TB
+        C1[User Interface<br/>Web/Mobile]
+        C2[API Request<br/>HTTP/JSON]
+    end
+
+    subgraph Gateway[🌐 API Gateway]
+        direction TB
+        G1[Load Balancer<br/>Nginx/ALB]
+        G2[Rate Limiter<br/>Request Throttling]
+        G3[Router<br/>Path Matching]
+    end
+
+    subgraph Processing[⚙️ Request Processing]
+        direction TB
+        P1[Authentication<br/>Token Validation]
+        P2[Authorization<br/>Access Control]
+        P3[Input Validation<br/>Schema Validation]
+        P4[Sanitization<br/>XSS/Injection Prevention]
+    end
+
+    subgraph Business[💼 Business Logic]
+        direction TB
+        B1[Controllers<br/>Request Handling]
+        B2[Services<br/>Business Rules]
+        B3[Validators<br/>Data Validation]
+    end
+
+    subgraph Data[💾 Data Operations]
+        direction TB
+        D1[Read Operations<br/>SELECT/GET]
+        D2[Write Operations<br/>INSERT/UPDATE]
+        D3[Cache Layer<br/>Redis/Memcached]
+    end
+
+    subgraph Response[📤 Response]
+        direction TB
+        R1[Transform<br/>Format Data]
+        R2[Serialize<br/>JSON/XML]
+        R3[Deliver<br/>HTTP Response]
+    end
+
+    %% Workflow connections
+    C1 --> C2
+    C2 --> G1
+    G1 --> G2
+    G2 --> G3
+    G3 --> P1
+    P1 --> P2
+    P2 --> P3
+    P3 --> P4
+    P4 --> B1
+    B1 --> B2
+    B2 --> B3
+    B3 --> D1
+    B3 --> D2
+    D1 --> D3
+    D2 --> D3
+    D3 --> R1
+    R1 --> R2
+    R2 --> R3
+    R3 --> C1
+
+    %% Styling
+    style Client fill:#4A90E2,color:#fff,stroke:#2E5C8A,stroke-width:2px
+    style Gateway fill:#F5A623,color:#fff,stroke:#C78419,stroke-width:2px
+    style Processing fill:#D0021B,color:#fff,stroke:#9E0016,stroke-width:2px
+    style Business fill:#9013FE,color:#fff,stroke:#6B0FB8,stroke-width:2px
+    style Data fill:#50E3C2,color:#000,stroke:#3BB89F,stroke-width:2px
+    style Response fill:#7ED321,color:#fff,stroke:#5BA818,stroke-width:2px
+
+    classDef default fill:#fff,stroke:#333,stroke-width:1px
+
+    %% AI-Generated Workflow Insights
