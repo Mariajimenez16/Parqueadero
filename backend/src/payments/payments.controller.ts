@@ -13,8 +13,13 @@ export class PaymentsController {
 
   @Get('pending')
   @Roles('ADMIN', 'CAJERO', 'VIGILANTE')
-  async getPendingPayments(@Query('search') search?: string) {
-    return this.paymentsService.getPendingPayments(search);
+  async getPendingPayments(
+    @Query('search') search?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('dayOfWeek') dayOfWeek?: string,
+  ) {
+    return this.paymentsService.getPendingPayments(search, dateFrom, dateTo, dayOfWeek ? parseInt(dayOfWeek, 10) : undefined);
   }
 
   @Get('history')
@@ -23,8 +28,16 @@ export class PaymentsController {
     @Query('search') search?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
+    @Query('dayOfWeek') dayOfWeek?: string,
+    @Query('metodoPago') metodoPago?: string,
   ) {
-    return this.paymentsService.getPaymentHistory(search, dateFrom, dateTo);
+    return this.paymentsService.getPaymentHistory(
+      search,
+      dateFrom,
+      dateTo,
+      dayOfWeek ? parseInt(dayOfWeek, 10) : undefined,
+      metodoPago,
+    );
   }
 
   @Post(':id/pay')

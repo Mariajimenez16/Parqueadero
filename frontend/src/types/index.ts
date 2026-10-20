@@ -182,3 +182,34 @@ export interface DashboardStats {
     flujoPorHoras: Array<{ hora: string; entradas: number; salidas: number }>;
   };
 }
+
+export interface WeeklyDailyStat {
+  fecha: string;
+  dia: string;
+  diaSemana: number;
+  entradas: number;
+  salidas: number;
+  totalOperaciones: number;
+  recaudo: number;
+  cantidadPagos: number;
+}
+
+export interface WeeklyFlowResponse {
+  period: {
+    startDate: string;
+    endDate: string;
+    diasAnalizados: number;
+  };
+  kpis: {
+    totalEntradas: number;
+    totalSalidas: number;
+    totalOperaciones: number;
+    totalRecaudo: number;
+    promedioDiarioOperaciones: number;
+    diaMayorFlujo: { dia: string; fecha: string; operaciones: number } | null;
+    diaMenorFlujo: { dia: string; fecha: string; operaciones: number } | null;
+  };
+  dailyStats: WeeklyDailyStat[];
+  distribucionVehiculos: Array<{ name: string; cantidad: number }>;
+  distribucionUsuarios: Array<{ name: string; cantidad: number }>;
+}

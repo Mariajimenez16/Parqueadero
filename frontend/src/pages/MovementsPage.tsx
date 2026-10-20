@@ -15,6 +15,8 @@ import {
   RefreshCw,
   History,
   AlertTriangle,
+  Filter,
+  RotateCcw,
 } from 'lucide-react';
 
 /** Calcula el tiempo transcurrido desde una fecha de entrada */
@@ -39,7 +41,13 @@ export const MovementsPage: React.FC = () => {
   const [activeMovements, setActiveMovements] = useState<Movement[]>([]);
   const [historyMovements, setHistoryMovements] = useState<Movement[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Filtros
   const [search, setSearch] = useState('');
+  const [tipoVehiculo, setTipoVehiculo] = useState('TODOS');
+  const [estadoFilter, setEstadoFilter] = useState('TODOS');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   // QR Modal state
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -57,10 +65,23 @@ export const MovementsPage: React.FC = () => {
     setLoading(true);
     try {
       if (activeTab === 'active') {
-        const res = await api.get('/movements/active');
+        const res = await api.get('/movements/active', {
+          params: {
+            search: search || undefined,
+            tipoVehiculo: tipoVehiculo !== 'TODOS' ? tipoVehiculo : undefined,
+          },
+        });
         setActiveMovements(res.data);
       } else {
-        const res = await api.get('/movements/history', { params: { search } });
+        const res = await api.get('/movements/history', {
+          params: {
+            search: search || undefined,
+            estado: estadoFilter !== 'TODOS' ? estadoFilter : undefined,
+            tipoVehiculo: tipoVehiculo !== 'TODOS' ? tipoVehiculo : undefined,
+            dateFrom: dateFrom || undefined,
+            dateTo: dateTo || undefined,
+          },
+        });
         setHistoryMovements(res.data);
       }
     } catch (err: any) {
@@ -72,7 +93,15 @@ export const MovementsPage: React.FC = () => {
 
   useEffect(() => {
     fetchMovements();
-  }, [activeTab, search]);
+  }, [activeTab, search, tipoVehiculo, estadoFilter, dateFrom, dateTo]);
+
+  const handleClearFilters = () => {
+    setSearch('');
+    setTipoVehiculo('TODOS');
+    setEstadoFilter('TODOS');
+    setDateFrom('');
+    setDateTo('');
+  };
 
   const handleRegisterEntry = async (identifier: string) => {
     if (!identifier.trim()) return;
@@ -98,11 +127,11 @@ export const MovementsPage: React.FC = () => {
     try {
       const res = await api.post('/movements/exit', {
         identifier: identifier.trim().toUpperCase(),
-        observaciones: 'Salida registrada en garita',
+        observaciones: 'Salida registrada en portería',
       });
-      setExitSummary(res.data.summary);
       setToast({ type: 'success', message: res.data.message });
       setManualPlaca('');
+      setExitSummary(res.data.summary);
       fetchMovements();
     } catch (err: any) {
       setToast({ type: 'error', message: err.message });
@@ -111,24 +140,15 @@ export const MovementsPage: React.FC = () => {
     }
   };
 
-  const handleScanSuccess = (decoded: string) => {
-    if (scanAction === 'entry') {
-      handleRegisterEntry(decoded);
-    } else {
-      handleRegisterExit(decoded);
-    }
+  const handleManualSubmit = (type: 'entry' | 'exit') => {
+    if (type === 'entry') handleRegisterEntry(manualPlaca);
+    else handleRegisterExit(manualPlaca);
   };
 
-  const handleManualSubmit = (action: 'entry' | 'exit') => {
-    if (!manualPlaca.trim()) {
-      setToast({ type: 'error', message: 'Ingrese una placa válida para continuar.' });
-      return;
-    }
-    if (action === 'entry') {
-      handleRegisterEntry(manualPlaca);
-    } else {
-      handleRegisterExit(manualPlaca);
-    }
+  const handleScanSuccess = (code: string) => {
+    setIsScannerOpen(false);
+    if (scanAction === 'entry') handleRegisterEntry(code);
+    else handleRegisterExit(code);
   };
 
   return (
@@ -141,11 +161,11 @@ export const MovementsPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
-            <QrCode className="w-6 h-6 text-sky-400" />
-            Control de Acceso y Torniquete QR
+            <Car className="w-6 h-6 text-sky-400" />
+            Control de Movimientos y Portería
           </h1>
           <p className="text-xs text-slate-400">
-            Módulo de operación para registrar entradas y salidas de vehículos autorizados
+            Registro de entradas y salidas en tiempo real con escaneo de código QR o validación de placa
           </p>
         </div>
 
@@ -173,7 +193,6 @@ export const MovementsPage: React.FC = () => {
           </div>
 
           <div className="space-y-2">
-            {/* Campo de placa manual */}
             <div className="flex gap-2">
               <input
                 type="text"
@@ -200,7 +219,7 @@ export const MovementsPage: React.FC = () => {
               className="w-full bg-emerald-600/10 hover:bg-emerald-600/20 border border-emerald-700/40 text-emerald-400 font-semibold py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 text-xs"
             >
               <QrCode className="w-4 h-4" />
-              <span>Escanear Codigo QR para Entrada</span>
+              <span>Escanear Código QR para Entrada</span>
             </button>
           </div>
         </div>
@@ -218,7 +237,6 @@ export const MovementsPage: React.FC = () => {
           </div>
 
           <div className="space-y-2">
-            {/* Campo de placa manual */}
             <div className="flex gap-2">
               <input
                 type="text"
@@ -245,7 +263,7 @@ export const MovementsPage: React.FC = () => {
               className="w-full bg-sky-600/10 hover:bg-sky-600/20 border border-sky-700/40 text-sky-400 font-semibold py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 text-xs"
             >
               <QrCode className="w-4 h-4" />
-              <span>Escanear Codigo QR para Salida</span>
+              <span>Escanear Código QR para Salida</span>
             </button>
           </div>
         </div>
@@ -273,27 +291,81 @@ export const MovementsPage: React.FC = () => {
           }`}
         >
           <History className="w-4 h-4" />
-          Historial de Movimientos
+          Historial de Movimientos ({historyMovements.length})
         </button>
+      </div>
+
+      {/* Filtros Funcionales de Vigilancia */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3 shadow-md">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-slate-300 font-semibold text-xs">
+            <Filter className="w-4 h-4 text-sky-400" />
+            <span>Filtros de Búsqueda y Clasificación</span>
+          </div>
+          <button
+            onClick={handleClearFilters}
+            className="px-2.5 py-1 text-rose-400 hover:bg-rose-950/40 rounded-lg text-xs font-medium transition-all flex items-center gap-1"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Limpiar Filtros</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Buscar por placa, usuario o espacio..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 pl-9 text-slate-100 text-xs placeholder-slate-500 focus:outline-none focus:border-sky-500"
+            />
+            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
+          </div>
+
+          <div>
+            <select
+              value={tipoVehiculo}
+              onChange={(e) => setTipoVehiculo(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 text-xs focus:outline-none focus:border-sky-500"
+            >
+              <option value="TODOS">Todos los tipos de vehículo</option>
+              <option value="AUTOMOVIL">Automóvil</option>
+              <option value="MOTOCICLETA">Motocicleta</option>
+              <option value="BICICLETA">Bicicleta</option>
+            </select>
+          </div>
+
+          {activeTab === 'history' && (
+            <>
+              <div>
+                <select
+                  value={estadoFilter}
+                  onChange={(e) => setEstadoFilter(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 text-xs focus:outline-none focus:border-sky-500"
+                >
+                  <option value="TODOS">Todos los estados</option>
+                  <option value="DENTRO">Dentro</option>
+                  <option value="FINALIZADO">Finalizado</option>
+                </select>
+              </div>
+
+              <div>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 text-xs focus:outline-none focus:border-sky-500"
+                  title="Fecha inicial de ingreso"
+                />
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Tabla de Movimientos */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-        {activeTab === 'history' && (
-          <div className="p-4 border-b border-slate-800">
-            <div className="relative max-w-md">
-              <input
-                type="text"
-                placeholder="Buscar en historial por placa, usuario o espacio..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 pl-10 text-slate-100 text-xs placeholder-slate-500 focus:outline-none focus:border-sky-500"
-              />
-              <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-2.5" />
-            </div>
-          </div>
-        )}
-
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs text-slate-300">
             <thead className="bg-slate-950/80 text-slate-400 uppercase font-semibold text-[11px] border-b border-slate-800">
@@ -304,23 +376,24 @@ export const MovementsPage: React.FC = () => {
                 <th className="p-4">Hora de Entrada</th>
                 {activeTab === 'active' && <th className="p-4">Tiempo en Recinto</th>}
                 {activeTab === 'history' && <th className="p-4">Hora de Salida</th>}
+                {activeTab === 'history' && <th className="p-4">Estado</th>}
                 <th className="p-4">Operador</th>
-                <th className="p-4 text-right">Accion Salida</th>
+                <th className="p-4 text-right">Acción Salida</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-slate-500">
+                  <td colSpan={8} className="p-8 text-center text-slate-500">
                     Cargando movimientos...
                   </td>
                 </tr>
               ) : (activeTab === 'active' ? activeMovements : historyMovements).length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-slate-500">
+                  <td colSpan={8} className="p-8 text-center text-slate-500">
                     {activeTab === 'active'
-                      ? 'No hay ningun vehiculo actualmente dentro del recinto.'
-                      : 'No se encontraron movimientos registrados.'}
+                      ? 'No hay ningún vehículo que coincida con los criterios.'
+                      : 'No se encontraron movimientos registrados para los filtros seleccionados.'}
                   </td>
                 </tr>
               ) : (
@@ -351,7 +424,6 @@ export const MovementsPage: React.FC = () => {
                         {new Date(m.entryTime).toLocaleDateString()}
                       </div>
                     </td>
-                    {/* Columna de duración activa (solo en tab "active") */}
                     {activeTab === 'active' && (
                       <td className="p-4">
                         <div
@@ -375,6 +447,11 @@ export const MovementsPage: React.FC = () => {
                         {m.exitTime
                           ? new Date(m.exitTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                           : '—'}
+                      </td>
+                    )}
+                    {activeTab === 'history' && (
+                      <td className="p-4">
+                        <Badge status={m.estado} />
                       </td>
                     )}
                     <td className="p-4 text-slate-400">
@@ -412,11 +489,11 @@ export const MovementsPage: React.FC = () => {
 
             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2 text-xs">
               <div className="flex justify-between border-b border-slate-800/80 pb-2">
-                <span className="text-slate-400">Factura N.:</span>
+                <span className="text-slate-400">Factura Nº:</span>
                 <span className="font-mono font-bold text-sky-400">{exitSummary.numeroFactura}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">Vehiculo:</span>
+                <span className="text-slate-400">Vehículo:</span>
                 <span className="font-mono font-bold text-slate-200">{exitSummary.placa}</span>
               </div>
               <div className="flex justify-between">
@@ -424,14 +501,14 @@ export const MovementsPage: React.FC = () => {
                 <span className="text-slate-200">{exitSummary.usuario}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">Duracion:</span>
+                <span className="text-slate-400">Duración:</span>
                 <span className="text-slate-200 font-semibold">
                   {exitSummary.duracionMinutos} min ({exitSummary.horasFacturables} hrs)
                 </span>
               </div>
               <div className="flex justify-between border-t border-slate-800/80 pt-2 text-sm font-bold">
                 <span className="text-slate-200">Total a Pagar:</span>
-                <span className="text-amber-400">${exitSummary.valorTotal.toLocaleString()}</span>
+                <span className="text-amber-400">${exitSummary.valorTotal.toLocaleString()} COP</span>
               </div>
             </div>
 

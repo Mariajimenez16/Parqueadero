@@ -1,17 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { AuditLog } from '../types';
-import { History, Search, User as UserIcon, Shield, Clock } from 'lucide-react';
+import { History, Search, Filter, RotateCcw } from 'lucide-react';
 
 export const AuditPage: React.FC = () => {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [actionFilter, setActionFilter] = useState('TODAS');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   const fetchLogs = async () => {
     setLoading(true);
     try {
-      const res = await api.get('/audit', { params: { search } });
+      const res = await api.get('/audit', {
+        params: {
+          search: search || undefined,
+          action: actionFilter !== 'TODAS' ? actionFilter : undefined,
+          dateFrom: dateFrom || undefined,
+          dateTo: dateTo || undefined,
+        },
+      });
       setLogs(res.data);
     } catch (err) {
       console.error('Error al cargar logs:', err);
@@ -22,7 +32,14 @@ export const AuditPage: React.FC = () => {
 
   useEffect(() => {
     fetchLogs();
-  }, [search]);
+  }, [search, actionFilter, dateFrom, dateTo]);
+
+  const handleClearFilters = () => {
+    setSearch('');
+    setActionFilter('TODAS');
+    setDateFrom('');
+    setDateTo('');
+  };
 
   return (
     <div className="space-y-6">
@@ -38,17 +55,69 @@ export const AuditPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Filter */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 max-w-md">
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="Buscar por Acción, Usuario o Detalles..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 pl-10 text-slate-100 text-xs placeholder-slate-500 focus:outline-none focus:border-sky-500"
-          />
-          <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-2.5" />
+      {/* Barra de Filtros de Auditoría */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3 shadow-md">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-slate-300 font-semibold text-xs">
+            <Filter className="w-4 h-4 text-sky-400" />
+            <span>Filtros de Trazabilidad</span>
+          </div>
+          <button
+            onClick={handleClearFilters}
+            className="px-2.5 py-1 text-rose-400 hover:bg-rose-950/40 rounded-lg text-xs font-medium transition-all flex items-center gap-1"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Limpiar Filtros</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Buscar por usuario o detalles..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 pl-10 text-slate-100 text-xs placeholder-slate-500 focus:outline-none focus:border-sky-500"
+            />
+            <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-2.5" />
+          </div>
+
+          <div>
+            <select
+              value={actionFilter}
+              onChange={(e) => setActionFilter(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 text-xs focus:outline-none focus:border-sky-500"
+            >
+              <option value="TODAS">Todas las acciones</option>
+              <option value="REGISTRO_ENTRADA">Registro de Entrada</option>
+              <option value="REGISTRO_SALIDA">Registro de Salida</option>
+              <option value="REGISTRO_PAGO">Registro de Pago</option>
+              <option value="INICIO_SESION">Inicio de Sesión</option>
+              <option value="CREACION_USUARIO">Creación de Usuario</option>
+              <option value="ACTUALIZACION_TARIFA">Actualización de Tarifa</option>
+            </select>
+          </div>
+
+          <div>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 text-xs focus:outline-none focus:border-sky-500"
+              title="Fecha inicial"
+            />
+          </div>
+
+          <div>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 text-xs focus:outline-none focus:border-sky-500"
+              title="Fecha final"
+            />
+          </div>
         </div>
       </div>
 
@@ -75,7 +144,7 @@ export const AuditPage: React.FC = () => {
               ) : logs.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="p-8 text-center text-slate-500">
-                    No existen registros de auditoría que coincidan.
+                    No existen registros de auditoría que coincidan con la búsqueda.
                   </td>
                 </tr>
               ) : (
@@ -98,7 +167,7 @@ export const AuditPage: React.FC = () => {
                     </td>
                     <td className="p-4 font-bold text-sky-400">{log.accion}</td>
                     <td className="p-4 text-slate-300">{log.entidad}</td>
-                    <td className="p-4 text-slate-400 font-sans">{log.detalles || '—'}</td>
+                    <td className="p-4 text-slate-300 font-sans">{log.detalles}</td>
                   </tr>
                 ))
               )}

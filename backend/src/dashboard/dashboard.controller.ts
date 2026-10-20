@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { DashboardService } from './dashboard.service';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -13,5 +13,14 @@ export class DashboardController {
   @Roles('ADMIN', 'VIGILANTE', 'CAJERO')
   async getStats() {
     return this.dashboardService.getStats();
+  }
+
+  @Get('weekly-flow')
+  @Roles('ADMIN', 'VIGILANTE', 'CAJERO')
+  async getWeeklyFlow(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.dashboardService.getWeeklyFlow(startDate, endDate);
   }
 }

@@ -6,7 +6,12 @@ import { ProcessPaymentDto } from './dto/process-payment.dto';
 export class PaymentsService {
   constructor(private prisma: PrismaService) {}
 
-  async getPendingPayments(search?: string) {
+  async getPendingPayments(
+    search?: string,
+    dateFrom?: string,
+    dateTo?: string,
+    dayOfWeek?: number,
+  ) {
     const where: any = { estado: 'PENDIENTE' };
 
     if (search) {
@@ -18,7 +23,21 @@ export class PaymentsService {
       ];
     }
 
-    return this.prisma.payment.findMany({
+    if (dateFrom || dateTo) {
+      where.createdAt = {};
+      if (dateFrom) {
+        const dFrom = new Date(dateFrom);
+        dFrom.setHours(0, 0, 0, 0);
+        where.createdAt.gte = dFrom;
+      }
+      if (dateTo) {
+        const dTo = new Date(dateTo);
+        dTo.setHours(23, 59, 59, 999);
+        where.createdAt.lte = dTo;
+      }
+    }
+
+    const payments = await this.prisma.payment.findMany({
       where,
       include: {
         movement: {
@@ -32,9 +51,27 @@ export class PaymentsService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    if (dayOfWeek !== undefined && !isNaN(dayOfWeek)) {
+      return payments.filter((p) => {
+        const date = new Date(p.createdAt);
+        // dayOfWeek 1=Lunes (JS 1), ..., 7=Domingo (JS 0)
+        const jsDay = date.getDay();
+        const normalized = jsDay === 0 ? 7 : jsDay;
+        return normalized === dayOfWeek;
+      });
+    }
+
+    return payments;
   }
 
-  async getPaymentHistory(search?: string, dateFrom?: string, dateTo?: string) {
+  async getPaymentHistory(
+    search?: string,
+    dateFrom?: string,
+    dateTo?: string,
+    dayOfWeek?: number,
+    metodoPago?: string,
+  ) {
     const where: any = { estado: 'PAGADO' };
 
     if (search) {
@@ -42,16 +79,29 @@ export class PaymentsService {
         { numeroFactura: { contains: search } },
         { movement: { vehicle: { placa: { contains: search.toUpperCase() } } } },
         { movement: { user: { nombre: { contains: search } } } },
+        { movement: { user: { documento: { contains: search } } } },
       ];
+    }
+
+    if (metodoPago && metodoPago !== 'TODOS') {
+      where.metodoPago = metodoPago;
     }
 
     if (dateFrom || dateTo) {
       where.fechaPago = {};
-      if (dateFrom) where.fechaPago.gte = new Date(dateFrom);
-      if (dateTo) where.fechaPago.lte = new Date(dateTo);
+      if (dateFrom) {
+        const dFrom = new Date(dateFrom);
+        dFrom.setHours(0, 0, 0, 0);
+        where.fechaPago.gte = dFrom;
+      }
+      if (dateTo) {
+        const dTo = new Date(dateTo);
+        dTo.setHours(23, 59, 59, 999);
+        where.fechaPago.lte = dTo;
+      }
     }
 
-    return this.prisma.payment.findMany({
+    const payments = await this.prisma.payment.findMany({
       where,
       include: {
         movement: {
@@ -67,6 +117,17 @@ export class PaymentsService {
       orderBy: { fechaPago: 'desc' },
       take: 200,
     });
+
+    if (dayOfWeek !== undefined && !isNaN(dayOfWeek)) {
+      return payments.filter((p) => {
+        const targetDate = p.fechaPago ? new Date(p.fechaPago) : new Date(p.createdAt);
+        const jsDay = targetDate.getDay();
+        const normalized = jsDay === 0 ? 7 : jsDay;
+        return normalized === dayOfWeek;
+      });
+    }
+
+    return payments;
   }
 
   async processPayment(id: string, dto: ProcessPaymentDto, cashierId: string) {
@@ -169,7 +230,7 @@ export class PaymentsService {
       },
       vehiculo: {
         placa: payment.movement.vehicle.placa,
-        tipo: payment.movement.vehicle.type,
+        tipo: payment.movement.vehicle.tipoVehiculo || payment.movement.vehicle.type,
         marca: payment.movement.vehicle.marca,
         modelo: payment.movement.vehicle.modelo,
         color: payment.movement.vehicle.color,
