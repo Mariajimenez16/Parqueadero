@@ -13,14 +13,17 @@ import {
   Smartphone,
   Download,
   CheckCircle2,
-  Receipt as ReceiptIcon,
   Search,
   History,
   Clock,
   Car,
   Loader2,
   LogOut,
-  AlertTriangle,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  RotateCcw,
+  Filter,
 } from 'lucide-react';
 
 const getElapsedTime = (entryTime: string): string => {
@@ -32,13 +35,48 @@ const getElapsedTime = (entryTime: string): string => {
   return `${hours}h ${minutes}m`;
 };
 
+// Formatea fecha a YYYY-MM-DD
+const formatDate = (d: Date): string => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// Obtiene el lunes y domingo de la semana correspondiente a una fecha
+const getWeekRange = (date: Date): { start: string; end: string } => {
+  const day = date.getDay();
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const monday = new Date(date);
+  monday.setDate(date.getDate() + diffToMonday);
+
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+
+  return {
+    start: formatDate(monday),
+    end: formatDate(sunday),
+  };
+};
+
 export const PaymentsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'activeVehicles' | 'pending' | 'history'>('pending');
   const [activeMovements, setActiveMovements] = useState<Movement[]>([]);
   const [pendingPayments, setPendingPayments] = useState<Payment[]>([]);
   const [historyPayments, setHistoryPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Filtros
   const [search, setSearch] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [dayOfWeek, setDayOfWeek] = useState<string>('TODOS');
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>('TODOS');
+  const [vehicleTypeFilter, setVehicleTypeFilter] = useState<string>('TODOS');
+
+  // Referencia de la semana actual para navegación
+  const [currentWeekPivot, setCurrentWeekPivot] = useState<Date>(new Date());
+
   const [quickPlaca, setQuickPlaca] = useState('');
   const [isLiquidating, setIsLiquidating] = useState(false);
 
@@ -52,17 +90,73 @@ export const PaymentsPage: React.FC = () => {
   const [receiptData, setReceiptData] = useState<Receipt | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // Navegación Semanal
+  const handleSetCurrentWeek = () => {
+    const today = new Date();
+    setCurrentWeekPivot(today);
+    const range = getWeekRange(today);
+    setDateFrom(range.start);
+    setDateTo(range.end);
+  };
+
+  const handlePrevWeek = () => {
+    const prev = new Date(currentWeekPivot);
+    prev.setDate(prev.getDate() - 7);
+    setCurrentWeekPivot(prev);
+    const range = getWeekRange(prev);
+    setDateFrom(range.start);
+    setDateTo(range.end);
+  };
+
+  const handleNextWeek = () => {
+    const next = new Date(currentWeekPivot);
+    next.setDate(next.getDate() + 7);
+    setCurrentWeekPivot(next);
+    const range = getWeekRange(next);
+    setDateFrom(range.start);
+    setDateTo(range.end);
+  };
+
+  const handleClearFilters = () => {
+    setSearch('');
+    setDateFrom('');
+    setDateTo('');
+    setDayOfWeek('TODOS');
+    setPaymentMethodFilter('TODOS');
+    setVehicleTypeFilter('TODOS');
+  };
+
   const fetchPayments = async () => {
     setLoading(true);
     try {
       if (activeTab === 'activeVehicles') {
-        const res = await api.get('/movements/active');
+        const res = await api.get('/movements/active', {
+          params: {
+            search: search || undefined,
+            tipoVehiculo: vehicleTypeFilter !== 'TODOS' ? vehicleTypeFilter : undefined,
+          },
+        });
         setActiveMovements(res.data);
       } else if (activeTab === 'pending') {
-        const res = await api.get('/payments/pending', { params: { search } });
+        const res = await api.get('/payments/pending', {
+          params: {
+            search: search || undefined,
+            dateFrom: dateFrom || undefined,
+            dateTo: dateTo || undefined,
+            dayOfWeek: dayOfWeek !== 'TODOS' ? dayOfWeek : undefined,
+          },
+        });
         setPendingPayments(res.data);
       } else {
-        const res = await api.get('/payments/history', { params: { search } });
+        const res = await api.get('/payments/history', {
+          params: {
+            search: search || undefined,
+            dateFrom: dateFrom || undefined,
+            dateTo: dateTo || undefined,
+            dayOfWeek: dayOfWeek !== 'TODOS' ? dayOfWeek : undefined,
+            metodoPago: paymentMethodFilter !== 'TODOS' ? paymentMethodFilter : undefined,
+          },
+        });
         setHistoryPayments(res.data);
       }
     } catch (err: any) {
@@ -74,7 +168,7 @@ export const PaymentsPage: React.FC = () => {
 
   useEffect(() => {
     fetchPayments();
-  }, [activeTab, search]);
+  }, [activeTab, search, dateFrom, dateTo, dayOfWeek, paymentMethodFilter, vehicleTypeFilter]);
 
   const handleOpenCheckout = (payment: Payment) => {
     setSelectedPayment(payment);
@@ -93,8 +187,7 @@ export const PaymentsPage: React.FC = () => {
       });
       setToast({ type: 'success', message: res.data.message });
       setQuickPlaca('');
-      
-      // Abrir inmediatamente la pasarela de cobro de la factura generada
+
       if (res.data.payment) {
         setSelectedPayment(res.data.payment);
         setSelectedMethod('EFECTIVO');
@@ -113,7 +206,7 @@ export const PaymentsPage: React.FC = () => {
     setIsProcessing(true);
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 900));
+      await new Promise((resolve) => setTimeout(resolve, 800));
 
       const res = await api.post(`/payments/${selectedPayment.id}/pay`, {
         metodoPago: selectedMethod,
@@ -193,6 +286,12 @@ export const PaymentsPage: React.FC = () => {
     doc.save(`Comprobante_Pago_${data.numeroFactura}.pdf`);
   };
 
+  // Cálculo de totales dinámicos según datos filtrados
+  const totalMontoFiltrado = (activeTab === 'pending' ? pendingPayments : historyPayments).reduce(
+    (sum, p) => sum + (p.valorTotal || 0),
+    0,
+  );
+
   return (
     <div className="space-y-6">
       {toast && (
@@ -207,7 +306,7 @@ export const PaymentsPage: React.FC = () => {
             Gestión de Pagos y Caja
           </h1>
           <p className="text-xs text-slate-400">
-            Liquidación de salidas de vehículos activos, facturas pendientes y comprobantes oficiales
+            Control de cobros, filtros por período semanal, día de la semana y comprobantes
           </p>
         </div>
 
@@ -265,25 +364,159 @@ export const PaymentsPage: React.FC = () => {
           }`}
         >
           <History className="w-4 h-4" />
-          Historial de Facturas Pagadas
+          Historial de Facturas Pagadas ({historyPayments.length})
         </button>
       </div>
 
-      {/* Filter Bar (para pending y history) */}
-      {activeTab !== 'activeVehicles' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 max-w-md">
+      {/* Barra de Filtros Avanzada con Controles Semanales */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3 shadow-md">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-slate-300 font-semibold text-xs">
+            <Filter className="w-4 h-4 text-sky-400" />
+            <span>Filtros Temporales y Operativos</span>
+          </div>
+
+          {/* Navegación Semanal Rápida */}
+          <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
+            <button
+              onClick={handlePrevWeek}
+              title="Semana Anterior"
+              className="px-2.5 py-1 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg text-xs font-medium transition-all flex items-center gap-1"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              <span>Semana Ant.</span>
+            </button>
+            <button
+              onClick={handleSetCurrentWeek}
+              title="Semana Actual"
+              className="px-2.5 py-1 bg-sky-600/30 text-sky-300 hover:bg-sky-600/50 rounded-lg text-xs font-bold transition-all flex items-center gap-1"
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Semana Actual</span>
+            </button>
+            <button
+              onClick={handleNextWeek}
+              title="Semana Siguiente"
+              className="px-2.5 py-1 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg text-xs font-medium transition-all flex items-center gap-1"
+            >
+              <span>Semana Sig.</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={handleClearFilters}
+              title="Limpiar Filtros"
+              className="px-2.5 py-1 text-rose-400 hover:bg-rose-950/40 rounded-lg text-xs font-medium transition-all flex items-center gap-1"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Limpiar</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 pt-1">
+          {/* Búsqueda */}
           <div className="relative">
             <input
               type="text"
-              placeholder="Buscar por Placa, Nº Factura o Usuario..."
+              placeholder="Buscar placa, factura o cliente..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 pl-10 text-slate-100 text-xs placeholder-slate-500 focus:outline-none focus:border-sky-500"
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 pl-9 text-slate-100 text-xs placeholder-slate-500 focus:outline-none focus:border-sky-500"
             />
-            <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-2.5" />
+            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
           </div>
+
+          {/* Fecha Desde */}
+          <div>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 text-xs focus:outline-none focus:border-sky-500"
+              title="Fecha inicial"
+            />
+          </div>
+
+          {/* Fecha Hasta */}
+          <div>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 text-xs focus:outline-none focus:border-sky-500"
+              title="Fecha final"
+            />
+          </div>
+
+          {/* Selector Día de la Semana */}
+          <div>
+            <select
+              value={dayOfWeek}
+              onChange={(e) => setDayOfWeek(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 text-xs focus:outline-none focus:border-sky-500"
+            >
+              <option value="TODOS">Todos los días</option>
+              <option value="1">Lunes</option>
+              <option value="2">Martes</option>
+              <option value="3">Miércoles</option>
+              <option value="4">Jueves</option>
+              <option value="5">Viernes</option>
+              <option value="6">Sábado</option>
+              <option value="7">Domingo</option>
+            </select>
+          </div>
+
+          {/* Filtro adicional según pestaña */}
+          {activeTab === 'history' ? (
+            <div>
+              <select
+                value={paymentMethodFilter}
+                onChange={(e) => setPaymentMethodFilter(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 text-xs focus:outline-none focus:border-sky-500"
+              >
+                <option value="TODOS">Todos los métodos</option>
+                <option value="EFECTIVO">Efectivo</option>
+                <option value="TARJETA_DEBITO">Tarjeta Débito</option>
+                <option value="TARJETA_CREDITO">Tarjeta Crédito</option>
+                <option value="PAGO_DIGITAL">Pago Digital</option>
+              </select>
+            </div>
+          ) : (
+            <div>
+              <select
+                value={vehicleTypeFilter}
+                onChange={(e) => setVehicleTypeFilter(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 text-xs focus:outline-none focus:border-sky-500"
+              >
+                <option value="TODOS">Todos los vehículos</option>
+                <option value="AUTOMOVIL">Automóvil</option>
+                <option value="MOTOCICLETA">Motocicleta</option>
+                <option value="BICICLETA">Bicicleta</option>
+              </select>
+            </div>
+          )}
         </div>
-      )}
+
+        {/* Resumen dinámico de la selección */}
+        <div className="flex flex-wrap items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800/80">
+          <div>
+            <span>Período actual: </span>
+            <strong className="text-sky-300">
+              {dateFrom && dateTo ? `${dateFrom} al ${dateTo}` : 'Histórico general sin límite de fechas'}
+            </strong>
+            {dayOfWeek !== 'TODOS' && (
+              <span className="ml-2 px-2 py-0.5 rounded bg-sky-950 text-sky-400 border border-sky-800">
+                Día filtrado: {['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][parseInt(dayOfWeek, 10) - 1]}
+              </span>
+            )}
+          </div>
+          {activeTab !== 'activeVehicles' && (
+            <div className="font-semibold text-slate-300">
+              Total facturado en vista: <span className="text-emerald-400 font-bold">${totalMontoFiltrado.toLocaleString()} COP</span>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Tabla según la pestaña seleccionada */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
@@ -311,7 +544,7 @@ export const PaymentsPage: React.FC = () => {
                 ) : activeMovements.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="p-8 text-center text-slate-500">
-                      No hay ningún vehículo activo dentro del parqueadero en este momento.
+                      No hay ningún vehículo activo que coincida con los criterios de búsqueda.
                     </td>
                   </tr>
                 ) : (
@@ -372,6 +605,7 @@ export const PaymentsPage: React.FC = () => {
                   <th className="p-4">Vehículo / Placa</th>
                   <th className="p-4">Usuario</th>
                   <th className="p-4">Estancia / Duración</th>
+                  <th className="p-4">Fecha Pago / Emisión</th>
                   <th className="p-4">Valor Total</th>
                   <th className="p-4">Estado</th>
                   <th className="p-4 text-right">Acción</th>
@@ -380,16 +614,16 @@ export const PaymentsPage: React.FC = () => {
               <tbody className="divide-y divide-slate-800/60">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-slate-500">
+                    <td colSpan={8} className="p-8 text-center text-slate-500">
                       Cargando pagos...
                     </td>
                   </tr>
                 ) : (activeTab === 'pending' ? pendingPayments : historyPayments).length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-slate-500">
+                    <td colSpan={8} className="p-8 text-center text-slate-500">
                       {activeTab === 'pending'
-                        ? 'No hay cobros ni pagos pendientes en este momento.'
-                        : 'No existen registros en el historial de pagos.'}
+                        ? 'No hay cobros pendientes para el período o filtros seleccionados.'
+                        : 'No existen registros en el historial de pagos para el período o filtros seleccionados.'}
                     </td>
                   </tr>
                 ) : (
@@ -419,6 +653,13 @@ export const PaymentsPage: React.FC = () => {
                         <div className="text-[10px] text-slate-500">
                           Espacio: {p.movement?.space?.codigo}
                         </div>
+                      </td>
+                      <td className="p-4 font-mono text-slate-300">
+                        {p.fechaPago
+                          ? new Date(p.fechaPago).toLocaleString()
+                          : p.createdAt
+                          ? new Date(p.createdAt).toLocaleString()
+                          : 'Pendiente'}
                       </td>
                       <td className="p-4">
                         <span className="text-sm font-extrabold text-amber-400">

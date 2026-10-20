@@ -14,18 +14,31 @@ export class MovementsController {
 
   @Get('active')
   @Roles('ADMIN', 'VIGILANTE', 'CAJERO')
-  async getActiveMovements() {
-    return this.movementsService.getActiveMovements();
+  async getActiveMovements(
+    @Query('search') search?: string,
+    @Query('tipoVehiculo') tipoVehiculo?: string,
+  ) {
+    return this.movementsService.getActiveMovements(search, tipoVehiculo);
   }
 
   @Get('history')
   @Roles('ADMIN', 'VIGILANTE', 'CAJERO')
   async getHistory(
     @Query('search') search?: string,
+    @Query('estado') estado?: string,
+    @Query('tipoVehiculo') tipoVehiculo?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
+    @Query('dayOfWeek') dayOfWeek?: string,
   ) {
-    return this.movementsService.getHistory(search, dateFrom, dateTo);
+    return this.movementsService.getHistory(
+      search,
+      estado,
+      tipoVehiculo,
+      dateFrom,
+      dateTo,
+      dayOfWeek ? parseInt(dayOfWeek, 10) : undefined,
+    );
   }
 
   @Post('entry')

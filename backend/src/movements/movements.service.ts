@@ -11,20 +11,8 @@ export class MovementsService {
     private tariffsService: TariffsService,
   ) {}
 
-  async getActiveMovements() {
-    return this.prisma.movement.findMany({
-      where: { estado: 'DENTRO' },
-      include: {
-        vehicle: { include: { user: true } },
-        space: true,
-        operator: { select: { id: true, nombre: true, apellidos: true } },
-      },
-      orderBy: { entryTime: 'desc' },
-    });
-  }
-
-  async getHistory(search?: string, dateFrom?: string, dateTo?: string) {
-    const where: any = {};
+  async getActiveMovements(search?: string, tipoVehiculo?: string) {
+    const where: any = { estado: 'DENTRO' };
 
     if (search) {
       where.OR = [
@@ -36,13 +24,64 @@ export class MovementsService {
       ];
     }
 
-    if (dateFrom || dateTo) {
-      where.entryTime = {};
-      if (dateFrom) where.entryTime.gte = new Date(dateFrom);
-      if (dateTo) where.entryTime.lte = new Date(dateTo);
+    if (tipoVehiculo && tipoVehiculo !== 'TODOS') {
+      where.vehicle = { ...where.vehicle, type: tipoVehiculo };
     }
 
     return this.prisma.movement.findMany({
+      where,
+      include: {
+        vehicle: { include: { user: true } },
+        space: true,
+        operator: { select: { id: true, nombre: true, apellidos: true } },
+      },
+      orderBy: { entryTime: 'desc' },
+    });
+  }
+
+  async getHistory(
+    search?: string,
+    estado?: string,
+    tipoVehiculo?: string,
+    dateFrom?: string,
+    dateTo?: string,
+    dayOfWeek?: number,
+  ) {
+    const where: any = {};
+
+    if (estado && estado !== 'TODOS') {
+      where.estado = estado;
+    }
+
+    if (search) {
+      where.OR = [
+        { vehicle: { placa: { contains: search.toUpperCase() } } },
+        { user: { nombre: { contains: search } } },
+        { user: { apellidos: { contains: search } } },
+        { user: { documento: { contains: search } } },
+        { space: { codigo: { contains: search.toUpperCase() } } },
+      ];
+    }
+
+    if (tipoVehiculo && tipoVehiculo !== 'TODOS') {
+      where.vehicle = { ...where.vehicle, type: tipoVehiculo };
+    }
+
+    if (dateFrom || dateTo) {
+      where.entryTime = {};
+      if (dateFrom) {
+        const dFrom = new Date(dateFrom);
+        dFrom.setHours(0, 0, 0, 0);
+        where.entryTime.gte = dFrom;
+      }
+      if (dateTo) {
+        const dTo = new Date(dateTo);
+        dTo.setHours(23, 59, 59, 999);
+        where.entryTime.lte = dTo;
+      }
+    }
+
+    const movements = await this.prisma.movement.findMany({
       where,
       include: {
         vehicle: true,
@@ -54,6 +93,17 @@ export class MovementsService {
       orderBy: { entryTime: 'desc' },
       take: 200,
     });
+
+    if (dayOfWeek !== undefined && !isNaN(dayOfWeek)) {
+      return movements.filter((m) => {
+        const date = new Date(m.entryTime);
+        const jsDay = date.getDay();
+        const normalized = jsDay === 0 ? 7 : jsDay;
+        return normalized === dayOfWeek;
+      });
+    }
+
+    return movements;
   }
 
   async registerEntry(dto: RegisterEntryDto, operatorId: string) {
