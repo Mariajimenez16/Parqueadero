@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../services/api';
 import { Payment, Receipt, Movement } from '../types';
 import { Badge } from '../components/common/Badge';
@@ -6,6 +6,19 @@ import { Modal } from '../components/common/Modal';
 import { Toast } from '../components/common/Toast';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { DateRangeFilter } from '../components/common/DateRangeFilter';
+import { ExportButtons } from '../components/common/ExportButtons';
+import { DailySummaryPanel } from '../components/common/DailySummaryPanel';
+import { useAuth } from '../context/AuthContext';
+import {
+  createDefaultDateFilter,
+  resolveDateRange,
+  buildDailySummary,
+  formatDateOnly,
+  formatTimeOnly,
+  fileSuffix,
+} from '../utils/dateFilters';
+import { exportToPDF, exportToExcel, formatMoney } from '../utils/exportUtils';
 import {
   CircleDollarSign,
   CreditCard,
@@ -52,6 +65,11 @@ export const PaymentsPage: React.FC = () => {
   const [receiptData, setReceiptData] = useState<Receipt | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // Filtro por fechas / día (pendientes: fecha de generación; historial: fecha de pago)
+  const { user } = useAuth();
+  const [dateFilter, setDateFilter] = useState(createDefaultDateFilter('all'));
+  const range = useMemo(() => resolveDateRange(dateFilter), [dateFilter]);
+
   const fetchPayments = async () => {
     setLoading(true);
     try {
@@ -59,10 +77,14 @@ export const PaymentsPage: React.FC = () => {
         const res = await api.get('/movements/active');
         setActiveMovements(res.data);
       } else if (activeTab === 'pending') {
-        const res = await api.get('/payments/pending', { params: { search } });
+        const res = await api.get('/payments/pending', {
+          params: { search, dateFrom: range.dateFrom, dateTo: range.dateTo },
+        });
         setPendingPayments(res.data);
       } else {
-        const res = await api.get('/payments/history', { params: { search } });
+        const res = await api.get('/payments/history', {
+          params: { search, dateFrom: range.dateFrom, dateTo: range.dateTo },
+        });
         setHistoryPayments(res.data);
       }
     } catch (err: any) {
@@ -74,7 +96,129 @@ export const PaymentsPage: React.FC = () => {
 
   useEffect(() => {
     fetchPayments();
-  }, [activeTab, search]);
+  }, [activeTab, search, range.dateFrom, range.dateTo]);
+
+  // ===== Resumen del período filtrado (análisis por día / semana) =====
+  const currentPayments = activeTab === 'pending' ? pendingPayments : historyPayments;
+  const periodTotal = currentPayments.reduce((acc, p) => acc + (p.valorTotal || 0), 0);
+  const periodAverage = currentPayments.length > 0 ? Math.round(periodTotal / currentPayments.length) : 0;
+  const dailyRows = useMemo(
+    () =>
+      buildDailySummary(
+        currentPayments,
+        (p) => (activeTab === 'history' ? p.fechaPago : p.createdAt),
+        (p) => p.valorTotal,
+        range,
+      ),
+    [currentPayments, activeTab, range],
+  );
+  const methodTotals = useMemo(() => {
+    const acc: Record<string, { cantidad: number; total: number }> = {};
+    historyPayments.forEach((p) => {
+      const m = p.metodoPago || 'EFECTIVO';
+      if (!acc[m]) acc[m] = { cantidad: 0, total: 0 };
+      acc[m].cantidad += 1;
+      acc[m].total += p.valorTotal || 0;
+    });
+    return acc;
+  }, [historyPayments]);
+
+  // ===== Exportación (PDF / Excel) según la pestaña y los filtros aplicados =====
+  const buildExportOptions = () => {
+    const generatedBy = user ? `${user.nombre} ${user.apellidos} (${user.role})` : undefined;
+    const extraFilters = search ? [`Búsqueda: "${search}"`] : [];
+
+    if (activeTab === 'activeVehicles') {
+      return {
+        title: 'Vehículos activos en recinto (caja)',
+        generatedBy,
+        filterLabel: `Estado actual al ${new Date().toLocaleString('es-CO')}`,
+        summary: [['Vehículos dentro del parqueadero', activeMovements.length]] as [string, string | number][],
+        tables: [
+          {
+            title: 'Vehículos activos',
+            columns: ['Placa', 'Vehículo', 'Tipo', 'Propietario', 'Documento', 'Espacio', 'Fecha entrada', 'Hora entrada', 'Tiempo en recinto'],
+            rows: activeMovements.map((m) => [
+              m.vehicle?.placa || '',
+              `${m.vehicle?.marca || ''} ${m.vehicle?.modelo || ''}`.trim(),
+              m.vehicle?.type || '',
+              `${m.user?.nombre || m.vehicle?.user?.nombre || ''} ${m.user?.apellidos || m.vehicle?.user?.apellidos || ''}`.trim(),
+              m.user?.documento || m.vehicle?.user?.documento || '',
+              m.space?.codigo || '',
+              formatDateOnly(m.entryTime),
+              formatTimeOnly(m.entryTime),
+              getElapsedTime(m.entryTime),
+            ]),
+          },
+        ],
+        fileName: `Caja_Vehiculos_Activos_${new Date().toISOString().split('T')[0]}`,
+        orientation: 'landscape' as const,
+      };
+    }
+
+    const isHistory = activeTab === 'history';
+    const summary: [string, string | number][] = [
+      [isHistory ? 'Total recaudado en el período' : 'Total pendiente por cobrar', `${formatMoney(periodTotal)} COP`],
+      [isHistory ? 'Transacciones pagadas' : 'Facturas pendientes', currentPayments.length],
+      ['Promedio por factura', `${formatMoney(periodAverage)} COP`],
+    ];
+    if (isHistory) {
+      Object.entries(methodTotals).forEach(([metodo, v]) => {
+        summary.push([`Recaudo ${metodo}`, `${formatMoney(v.total)} (${v.cantidad} pagos)`]);
+      });
+    }
+
+    const detail = {
+      title: isHistory ? 'Facturas pagadas' : 'Facturas pendientes',
+      columns: isHistory
+        ? ['Factura', 'Fecha pago', 'Hora', 'Placa', 'Cliente', 'Documento', 'Tipo usuario', 'Duración (min)', 'Espacio', 'Método', 'Cajero', 'Valor']
+        : ['Factura', 'Fecha generación', 'Hora', 'Placa', 'Cliente', 'Documento', 'Tipo usuario', 'Duración (min)', 'Espacio', 'Estado', 'Valor'],
+      rows: currentPayments.map((p) => {
+        const date = isHistory ? p.fechaPago : p.createdAt;
+        const base = [
+          p.numeroFactura,
+          formatDateOnly(date),
+          formatTimeOnly(date),
+          p.movement?.vehicle?.placa || '',
+          `${p.movement?.user?.nombre || ''} ${p.movement?.user?.apellidos || ''}`.trim(),
+          p.movement?.user?.documento || '',
+          p.movement?.user?.userType || '',
+          p.movement?.duracionMinutos || 0,
+          p.movement?.space?.codigo || '',
+        ];
+        return isHistory
+          ? [...base, p.metodoPago, p.cashier ? `${p.cashier.nombre} ${p.cashier.apellidos}` : '—', p.valorTotal]
+          : [...base, p.estado, p.valorTotal];
+      }),
+    };
+
+    const daily = {
+      title: 'Resumen por día',
+      columns: ['Fecha', 'Día', isHistory ? 'Pagos' : 'Facturas', 'Total'],
+      rows: dailyRows.map((d) => [d.fechaTexto, d.dia, d.cantidad, d.total]),
+    };
+
+    return {
+      title: isHistory ? 'Reporte de caja — Facturas pagadas' : 'Reporte de caja — Pagos pendientes',
+      generatedBy,
+      filterLabel: range.label,
+      extraFilters,
+      summary,
+      tables: [daily, detail],
+      fileName: `Caja_${isHistory ? 'Pagados' : 'Pendientes'}_${fileSuffix(range)}`,
+      orientation: 'landscape' as const,
+    };
+  };
+
+  const handleExportPDF = () => {
+    exportToPDF(buildExportOptions());
+    setToast({ type: 'success', message: 'Reporte PDF exportado con los filtros aplicados.' });
+  };
+
+  const handleExportExcel = () => {
+    exportToExcel(buildExportOptions());
+    setToast({ type: 'success', message: 'Reporte Excel (.xlsx) exportado con los filtros aplicados.' });
+  };
 
   const handleOpenCheckout = (payment: Payment) => {
     setSelectedPayment(payment);
@@ -271,16 +415,60 @@ export const PaymentsPage: React.FC = () => {
 
       {/* Filter Bar (para pending y history) */}
       {activeTab !== 'activeVehicles' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 max-w-md">
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Buscar por Placa, Nº Factura o Usuario..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 pl-10 text-slate-100 text-xs placeholder-slate-500 focus:outline-none focus:border-sky-500"
-            />
-            <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-2.5" />
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="relative w-full max-w-md">
+              <input
+                type="text"
+                placeholder="Buscar por Placa, Nº Factura o Usuario..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 pl-10 text-slate-100 text-xs placeholder-slate-500 focus:outline-none focus:border-sky-500"
+              />
+              <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-2.5" />
+            </div>
+            <ExportButtons onExportPDF={handleExportPDF} onExportExcel={handleExportExcel} disabled={loading} />
+          </div>
+
+          {/* Filtro por día o rango de fechas */}
+          <DateRangeFilter
+            value={dateFilter}
+            onChange={setDateFilter}
+            title={activeTab === 'history' ? 'Fecha de pago:' : 'Fecha de la factura:'}
+          />
+        </div>
+      )}
+
+      {/* Exportación de vehículos activos */}
+      {activeTab === 'activeVehicles' && (
+        <div className="flex justify-end">
+          <ExportButtons onExportPDF={handleExportPDF} onExportExcel={handleExportExcel} disabled={loading} />
+        </div>
+      )}
+
+      {/* Resumen del período filtrado */}
+      {activeTab !== 'activeVehicles' && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-1 shadow-lg">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+              {activeTab === 'history' ? 'Total recaudado' : 'Total pendiente'}
+            </span>
+            <p className="text-2xl font-extrabold text-amber-400">${periodTotal.toLocaleString()}</p>
+            <p className="text-[11px] text-slate-500">{range.label}</p>
+          </div>
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-1 shadow-lg">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+              {activeTab === 'history' ? 'Transacciones pagadas' : 'Facturas pendientes'}
+            </span>
+            <p className="text-2xl font-extrabold text-sky-400">{currentPayments.length}</p>
+            <p className="text-[11px] text-slate-500">En el período seleccionado</p>
+          </div>
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-1 shadow-lg">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+              Promedio por factura
+            </span>
+            <p className="text-2xl font-extrabold text-emerald-400">${periodAverage.toLocaleString()}</p>
+            <p className="text-[11px] text-slate-500">Valor medio del período</p>
           </div>
         </div>
       )}
@@ -457,6 +645,16 @@ export const PaymentsPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Resumen por día (análisis semanal del flujo de caja) */}
+      {activeTab !== 'activeVehicles' && dateFilter.mode !== 'all' && !loading && (
+        <DailySummaryPanel
+          title={activeTab === 'history' ? 'Recaudo por día del período' : 'Facturas pendientes por día del período'}
+          rows={dailyRows}
+          countLabel={activeTab === 'history' ? 'Pagos' : 'Facturas'}
+          totalLabel="Total"
+        />
+      )}
 
       {/* Modal Simulador de Pasarela Digital de Pago */}
       <Modal

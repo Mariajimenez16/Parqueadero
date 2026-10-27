@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TariffsService } from '../tariffs/tariffs.service';
 import { RegisterEntryDto } from './dto/register-entry.dto';
 import { RegisterExitDto } from './dto/register-exit.dto';
+import { buildDateRange } from '../common/utils/date-range.util';
 
 @Injectable()
 export class MovementsService {
@@ -36,10 +37,10 @@ export class MovementsService {
       ];
     }
 
-    if (dateFrom || dateTo) {
-      where.entryTime = {};
-      if (dateFrom) where.entryTime.gte = new Date(dateFrom);
-      if (dateTo) where.entryTime.lte = new Date(dateTo);
+    // Filtro por fechas (el día final queda incluido completo)
+    const range = buildDateRange(dateFrom, dateTo);
+    if (range) {
+      where.entryTime = range;
     }
 
     return this.prisma.movement.findMany({
@@ -52,7 +53,8 @@ export class MovementsService {
         payment: true,
       },
       orderBy: { entryTime: 'desc' },
-      take: 200,
+      // Sin filtro de fechas se mantiene el límite original; con rango se trae todo el período
+      ...(range ? {} : { take: 200 }),
     });
   }
 

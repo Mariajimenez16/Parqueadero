@@ -12,8 +12,13 @@ export class ReservationsController {
   constructor(private readonly reservationsService: ReservationsService) {}
 
   @Get()
-  async findAll(@Query('status') status?: string, @Query('userId') userId?: string) {
-    return this.reservationsService.findAll(status, userId);
+  async findAll(
+    @Query('status') status?: string,
+    @Query('userId') userId?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.reservationsService.findAll(status, userId, dateFrom, dateTo);
   }
 
   @Post()

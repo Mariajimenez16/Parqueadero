@@ -1,13 +1,20 @@
 import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProcessPaymentDto } from './dto/process-payment.dto';
+import { buildDateRange } from '../common/utils/date-range.util';
 
 @Injectable()
 export class PaymentsService {
   constructor(private prisma: PrismaService) {}
 
-  async getPendingPayments(search?: string) {
+  async getPendingPayments(search?: string, dateFrom?: string, dateTo?: string) {
     const where: any = { estado: 'PENDIENTE' };
+
+    // Filtro por fecha de generación de la factura pendiente
+    const range = buildDateRange(dateFrom, dateTo);
+    if (range) {
+      where.createdAt = range;
+    }
 
     if (search) {
       where.OR = [
@@ -45,10 +52,10 @@ export class PaymentsService {
       ];
     }
 
-    if (dateFrom || dateTo) {
-      where.fechaPago = {};
-      if (dateFrom) where.fechaPago.gte = new Date(dateFrom);
-      if (dateTo) where.fechaPago.lte = new Date(dateTo);
+    // Filtro por fecha de pago (el día final queda incluido completo)
+    const range = buildDateRange(dateFrom, dateTo);
+    if (range) {
+      where.fechaPago = range;
     }
 
     return this.prisma.payment.findMany({
@@ -65,7 +72,8 @@ export class PaymentsService {
         tariff: true,
       },
       orderBy: { fechaPago: 'desc' },
-      take: 200,
+      // Sin filtro de fechas se mantiene el límite original; con rango se trae todo el período
+      ...(range ? {} : { take: 200 }),
     });
   }
 

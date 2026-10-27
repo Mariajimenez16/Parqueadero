@@ -13,8 +13,12 @@ export class PaymentsController {
 
   @Get('pending')
   @Roles('ADMIN', 'CAJERO', 'VIGILANTE')
-  async getPendingPayments(@Query('search') search?: string) {
-    return this.paymentsService.getPendingPayments(search);
+  async getPendingPayments(
+    @Query('search') search?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.paymentsService.getPendingPayments(search, dateFrom, dateTo);
   }
 
   @Get('history')

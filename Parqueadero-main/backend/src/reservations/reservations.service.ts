@@ -1,15 +1,20 @@
 import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateReservationDto } from './dto/create-reservation.dto';
+import { buildDateRange } from '../common/utils/date-range.util';
 
 @Injectable()
 export class ReservationsService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(status?: string, userId?: string) {
+  async findAll(status?: string, userId?: string, dateFrom?: string, dateTo?: string) {
     const where: any = {};
     if (status) where.estado = status;
     if (userId) where.userId = userId;
+
+    // Filtro por fecha/hora de inicio de la reserva (el día final queda incluido completo)
+    const range = buildDateRange(dateFrom, dateTo);
+    if (range) where.horaInicio = range;
 
     return this.prisma.reservation.findMany({
       where,

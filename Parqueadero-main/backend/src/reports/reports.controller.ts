@@ -30,13 +30,29 @@ export class ReportsController {
 
   @Get('peak-hours')
   @Roles('ADMIN')
-  async getPeakHours() {
-    return this.reportsService.getPeakHoursReport();
+  async getPeakHours(
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.reportsService.getPeakHoursReport(dateFrom, dateTo);
   }
 
   @Get('spaces-utilization')
   @Roles('ADMIN')
-  async getSpaceUtilization() {
-    return this.reportsService.getSpaceUtilizationReport();
+  async getSpaceUtilization(
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.reportsService.getSpaceUtilizationReport(dateFrom, dateTo);
+  }
+
+  /** Flujo diario (entradas, salidas, pagos e ingresos por día) para análisis semanal */
+  @Get('daily-flow')
+  @Roles('ADMIN')
+  async getDailyFlow(
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.reportsService.getDailyFlowReport(dateFrom, dateTo);
   }
 }

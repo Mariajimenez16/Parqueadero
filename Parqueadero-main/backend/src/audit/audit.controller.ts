@@ -11,7 +11,12 @@ export class AuditController {
 
   @Get()
   @Roles('ADMIN')
-  async getLogs(@Query('search') search?: string, @Query('limit') limit?: string) {
-    return this.auditService.getLogs(search, limit ? parseInt(limit, 10) : 100);
+  async getLogs(
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.auditService.getLogs(search, limit ? parseInt(limit, 10) : 100, dateFrom, dateTo);
   }
 }

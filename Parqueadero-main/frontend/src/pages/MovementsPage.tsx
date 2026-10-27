@@ -1,9 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../services/api';
 import { Movement } from '../types';
 import { Badge } from '../components/common/Badge';
 import { Toast } from '../components/common/Toast';
 import { QRScannerModal } from '../components/common/QRScannerModal';
+import { DateRangeFilter } from '../components/common/DateRangeFilter';
+import { ExportButtons } from '../components/common/ExportButtons';
+import { DailySummaryPanel } from '../components/common/DailySummaryPanel';
+import { useAuth } from '../context/AuthContext';
+import {
+  createDefaultDateFilter,
+  resolveDateRange,
+  buildDailySummary,
+  formatDateOnly,
+  formatTimeOnly,
+  fileSuffix,
+} from '../utils/dateFilters';
+import { exportToPDF, exportToExcel } from '../utils/exportUtils';
 import {
   QrCode,
   LogIn,
@@ -53,6 +66,11 @@ export const MovementsPage: React.FC = () => {
   const [exitSummary, setExitSummary] = useState<any | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // Filtro por fechas / día del historial (por hora de entrada)
+  const { user } = useAuth();
+  const [dateFilter, setDateFilter] = useState(createDefaultDateFilter('all'));
+  const range = useMemo(() => resolveDateRange(dateFilter), [dateFilter]);
+
   const fetchMovements = async () => {
     setLoading(true);
     try {
@@ -60,7 +78,9 @@ export const MovementsPage: React.FC = () => {
         const res = await api.get('/movements/active');
         setActiveMovements(res.data);
       } else {
-        const res = await api.get('/movements/history', { params: { search } });
+        const res = await api.get('/movements/history', {
+          params: { search, dateFrom: range.dateFrom, dateTo: range.dateTo },
+        });
         setHistoryMovements(res.data);
       }
     } catch (err: any) {
@@ -72,7 +92,118 @@ export const MovementsPage: React.FC = () => {
 
   useEffect(() => {
     fetchMovements();
-  }, [activeTab, search]);
+  }, [activeTab, search, range.dateFrom, range.dateTo]);
+
+  // ===== Resumen del período (análisis semanal del flujo de vehículos) =====
+  const entriesByDay = useMemo(
+    () => buildDailySummary(historyMovements, (m) => m.entryTime, () => 0, range),
+    [historyMovements, range],
+  );
+  const exitsByDay = useMemo(
+    () =>
+      buildDailySummary(
+        historyMovements.filter((m) => !!m.exitTime),
+        (m) => m.exitTime,
+        () => 0,
+        range,
+      ),
+    [historyMovements, range],
+  );
+  const historyFinished = historyMovements.filter((m) => m.estado === 'FINALIZADO');
+  const historyInside = historyMovements.filter((m) => m.estado === 'DENTRO');
+  const avgStay =
+    historyFinished.length > 0
+      ? Math.round(historyFinished.reduce((acc, m) => acc + (m.duracionMinutos || 0), 0) / historyFinished.length)
+      : 0;
+
+  // ===== Exportación (PDF / Excel) con los filtros aplicados =====
+  const buildExportOptions = () => {
+    const generatedBy = user ? `${user.nombre} ${user.apellidos} (${user.role})` : undefined;
+
+    if (activeTab === 'active') {
+      return {
+        title: 'Control de acceso — Vehículos dentro del recinto',
+        generatedBy,
+        filterLabel: `Estado actual al ${new Date().toLocaleString('es-CO')}`,
+        summary: [['Vehículos actualmente dentro', activeMovements.length]] as [string, string | number][],
+        tables: [
+          {
+            title: 'Vehículos dentro',
+            columns: ['Placa', 'Vehículo', 'Tipo', 'Usuario', 'Documento', 'Espacio', 'Fecha entrada', 'Hora entrada', 'Tiempo en recinto', 'Operador'],
+            rows: activeMovements.map((m) => [
+              m.vehicle?.placa || '',
+              `${m.vehicle?.marca || ''} ${m.vehicle?.modelo || ''}`.trim(),
+              m.vehicle?.type || '',
+              `${m.user?.nombre || m.vehicle?.user?.nombre || ''} ${m.user?.apellidos || m.vehicle?.user?.apellidos || ''}`.trim(),
+              m.user?.documento || m.vehicle?.user?.documento || '',
+              m.space?.codigo || '',
+              formatDateOnly(m.entryTime),
+              formatTimeOnly(m.entryTime),
+              getElapsedTime(m.entryTime),
+              m.operator ? `${m.operator.nombre} ${m.operator.apellidos}` : 'Sistema',
+            ]),
+          },
+        ],
+        fileName: `Accesos_Vehiculos_Dentro_${new Date().toISOString().split('T')[0]}`,
+        orientation: 'landscape' as const,
+      };
+    }
+
+    const flowRows = entriesByDay.map((d) => {
+      const exits = exitsByDay.find((e) => e.fecha === d.fecha);
+      return [d.fechaTexto, d.dia, d.cantidad, exits ? exits.cantidad : 0];
+    });
+
+    return {
+      title: 'Control de acceso — Historial de movimientos',
+      generatedBy,
+      filterLabel: range.label,
+      extraFilters: search ? [`Búsqueda: "${search}"`] : [],
+      summary: [
+        ['Total movimientos (entradas) en el período', historyMovements.length],
+        ['Movimientos finalizados (con salida)', historyFinished.length],
+        ['Vehículos que siguen dentro', historyInside.length],
+        ['Estancia promedio', `${avgStay} min`],
+      ] as [string, string | number][],
+      tables: [
+        {
+          title: 'Flujo por día',
+          columns: ['Fecha', 'Día', 'Entradas', 'Salidas'],
+          rows: flowRows,
+        },
+        {
+          title: 'Detalle de movimientos',
+          columns: ['Placa', 'Vehículo', 'Usuario', 'Documento', 'Espacio', 'Fecha entrada', 'Hora entrada', 'Fecha salida', 'Hora salida', 'Duración (min)', 'Estado', 'Operador'],
+          rows: historyMovements.map((m) => [
+            m.vehicle?.placa || '',
+            `${m.vehicle?.marca || ''} ${m.vehicle?.modelo || ''} (${m.vehicle?.type || ''})`.trim(),
+            `${m.user?.nombre || ''} ${m.user?.apellidos || ''}`.trim(),
+            m.user?.documento || '',
+            m.space?.codigo || '',
+            formatDateOnly(m.entryTime),
+            formatTimeOnly(m.entryTime),
+            m.exitTime ? formatDateOnly(m.exitTime) : '—',
+            m.exitTime ? formatTimeOnly(m.exitTime) : '—',
+            m.duracionMinutos ?? '—',
+            m.estado,
+            m.operator ? `${m.operator.nombre} ${m.operator.apellidos}` : 'Sistema',
+          ]),
+        },
+      ],
+      fileName: `Accesos_Historial_${fileSuffix(range)}`,
+      orientation: 'landscape' as const,
+    };
+  };
+
+  const handleExportPDF = () => {
+    exportToPDF(buildExportOptions());
+    setToast({ type: 'success', message: 'Reporte PDF exportado con los filtros aplicados.' });
+  };
+
+  const handleExportExcel = () => {
+    exportToExcel(buildExportOptions());
+    setToast({ type: 'success', message: 'Reporte Excel (.xlsx) exportado con los filtros aplicados.' });
+  };
 
   const handleRegisterEntry = async (identifier: string) => {
     if (!identifier.trim()) return;
@@ -280,17 +411,45 @@ export const MovementsPage: React.FC = () => {
       {/* Tabla de Movimientos */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
         {activeTab === 'history' && (
-          <div className="p-4 border-b border-slate-800">
-            <div className="relative max-w-md">
-              <input
-                type="text"
-                placeholder="Buscar en historial por placa, usuario o espacio..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 pl-10 text-slate-100 text-xs placeholder-slate-500 focus:outline-none focus:border-sky-500"
-              />
-              <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-2.5" />
+          <div className="p-4 border-b border-slate-800 space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div className="relative w-full max-w-md">
+                <input
+                  type="text"
+                  placeholder="Buscar en historial por placa, usuario o espacio..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 pl-10 text-slate-100 text-xs placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                />
+                <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-2.5" />
+              </div>
+              <ExportButtons onExportPDF={handleExportPDF} onExportExcel={handleExportExcel} disabled={loading} />
             </div>
+
+            {/* Filtro por día o rango de fechas (hora de entrada) */}
+            <DateRangeFilter value={dateFilter} onChange={setDateFilter} title="Fecha de entrada:" />
+
+            {/* Mini resumen del período */}
+            <div className="flex flex-wrap gap-2 text-[11px]">
+              <span className="px-2.5 py-1 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-300">
+                Entradas: <strong>{historyMovements.length}</strong>
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300">
+                Finalizados: <strong>{historyFinished.length}</strong>
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300">
+                Siguen dentro: <strong>{historyInside.length}</strong>
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-300">
+                Estancia promedio: <strong>{avgStay} min</strong>
+              </span>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'active' && (
+          <div className="p-4 border-b border-slate-800 flex justify-end">
+            <ExportButtons onExportPDF={handleExportPDF} onExportExcel={handleExportExcel} disabled={loading} />
           </div>
         )}
 
@@ -397,6 +556,11 @@ export const MovementsPage: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Flujo por día del período (análisis semanal) */}
+      {activeTab === 'history' && dateFilter.mode !== 'all' && !loading && (
+        <DailySummaryPanel title="Entradas de vehículos por día del período" rows={entriesByDay} countLabel="Entradas" />
+      )}
 
       {/* Modal Resumen de Salida con Deuda Generada */}
       {exitSummary && (

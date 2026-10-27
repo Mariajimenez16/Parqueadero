@@ -1,10 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../services/api';
 import { Reservation, User, Vehicle, Space } from '../types';
 import { Badge } from '../components/common/Badge';
 import { Modal } from '../components/common/Modal';
 import { Toast } from '../components/common/Toast';
 import { useAuth } from '../context/AuthContext';
+import { DateRangeFilter } from '../components/common/DateRangeFilter';
+import { ExportButtons } from '../components/common/ExportButtons';
+import { createDefaultDateFilter, resolveDateRange, buildDailySummary, fileSuffix } from '../utils/dateFilters';
+import { exportToPDF, exportToExcel } from '../utils/exportUtils';
 import { CalendarCheck, Plus, XCircle } from 'lucide-react';
 
 export const ReservationsPage: React.FC = () => {
@@ -19,6 +23,10 @@ export const ReservationsPage: React.FC = () => {
 
   const { user: currentUser, hasRole } = useAuth();
   const isAdmin = hasRole('ADMIN');
+
+  // Filtro por fechas / día de la reserva (hora de inicio)
+  const [dateFilter, setDateFilter] = useState(createDefaultDateFilter('all'));
+  const range = useMemo(() => resolveDateRange(dateFilter), [dateFilter]);
 
   const [formData, setFormData] = useState({
     userId: '',
@@ -36,7 +44,9 @@ export const ReservationsPage: React.FC = () => {
     setLoading(true);
     try {
       const requests: Promise<any>[] = [
-        api.get('/reservations', { params: { status: statusFilter } }),
+        api.get('/reservations', {
+          params: { status: statusFilter, dateFrom: range.dateFrom, dateTo: range.dateTo },
+        }),
         api.get('/vehicles'),
         api.get('/spaces', { params: { estado: 'DISPONIBLE' } }),
       ];
@@ -63,7 +73,62 @@ export const ReservationsPage: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-  }, [statusFilter]);
+  }, [statusFilter, range.dateFrom, range.dateTo]);
+
+  // ===== Exportación (PDF / Excel) con los filtros aplicados =====
+  const buildExportOptions = () => {
+    const byStatus: Record<string, number> = {};
+    reservations.forEach((r) => {
+      byStatus[r.estado] = (byStatus[r.estado] || 0) + 1;
+    });
+    const daily = buildDailySummary(reservations, (r) => r.horaInicio, () => 0, range);
+
+    return {
+      title: isAdmin ? 'Gestión de reservas' : 'Mis reservas',
+      generatedBy: currentUser ? `${currentUser.nombre} ${currentUser.apellidos} (${currentUser.role})` : undefined,
+      filterLabel: range.label,
+      extraFilters: [`Estado: ${statusFilter || 'Todas las reservas'}`],
+      summary: [
+        ['Total reservas', reservations.length],
+        ...Object.entries(byStatus).map(([estado, n]) => [`Reservas ${estado}`, n]),
+      ] as [string, string | number][],
+      tables: [
+        {
+          title: 'Reservas por día',
+          columns: ['Fecha', 'Día', 'Reservas'],
+          rows: daily.map((d) => [d.fechaTexto, d.dia, d.cantidad]),
+        },
+        {
+          title: 'Detalle de reservas',
+          columns: ['Usuario', 'Correo', 'Placa', 'Vehículo', 'Espacio', 'Fecha', 'Hora inicio', 'Hora fin', 'Estado', 'Observaciones'],
+          rows: reservations.map((r) => [
+            `${r.user?.nombre || ''} ${r.user?.apellidos || ''}`.trim(),
+            r.user?.correo || '',
+            r.vehicle?.placa || '',
+            `${r.vehicle?.marca || ''} ${r.vehicle?.modelo || ''}`.trim(),
+            r.space?.codigo || '',
+            new Date(r.fecha).toLocaleDateString(),
+            new Date(r.horaInicio).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            new Date(r.horaFin).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            r.estado,
+            r.observaciones || '',
+          ]),
+        },
+      ],
+      fileName: `Reservas_${fileSuffix(range)}`,
+      orientation: 'landscape' as const,
+    };
+  };
+
+  const handleExportPDF = () => {
+    exportToPDF(buildExportOptions());
+    setToast({ type: 'success', message: 'Reporte PDF exportado con los filtros aplicados.' });
+  };
+
+  const handleExportExcel = () => {
+    exportToExcel(buildExportOptions());
+    setToast({ type: 'success', message: 'Reporte Excel (.xlsx) exportado con los filtros aplicados.' });
+  };
 
   const handleOpenCreate = () => {
     setFormData({
@@ -147,17 +212,25 @@ export const ReservationsPage: React.FC = () => {
       </div>
 
       {/* Filter */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 max-w-xs">
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 text-xs focus:outline-none focus:border-sky-500"
-        >
-          <option value="">Todas las Reservas</option>
-          <option value="CONFIRMADA">CONFIRMADA</option>
-          <option value="ACTIVA">ACTIVA</option>
-          <option value="CANCELADA">CANCELADA</option>
-        </select>
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="w-full max-w-xs">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 text-xs focus:outline-none focus:border-sky-500"
+            >
+              <option value="">Todas las Reservas</option>
+              <option value="CONFIRMADA">CONFIRMADA</option>
+              <option value="ACTIVA">ACTIVA</option>
+              <option value="CANCELADA">CANCELADA</option>
+            </select>
+          </div>
+          <ExportButtons onExportPDF={handleExportPDF} onExportExcel={handleExportExcel} disabled={loading} />
+        </div>
+
+        {/* Filtro por día o rango de fechas */}
+        <DateRangeFilter value={dateFilter} onChange={setDateFilter} title="Fecha de la reserva:" />
       </div>
 
       {/* Table */}

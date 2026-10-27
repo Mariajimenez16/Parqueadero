@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../services/api';
 import { Toast } from '../components/common/Toast';
+import { DateRangeFilter } from '../components/common/DateRangeFilter';
+import { createDefaultDateFilter, resolveDateRange, fileSuffix } from '../utils/dateFilters';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -27,14 +29,16 @@ import {
 } from 'recharts';
 
 export const ReportsPage: React.FC = () => {
-  const [period, setPeriod] = useState('month');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  // Filtro de fechas compartido por todos los reportes (por defecto últimos 30 días, como antes)
+  const [dateFilter, setDateFilter] = useState(createDefaultDateFilter('last30'));
+  const range = useMemo(() => resolveDateRange(dateFilter), [dateFilter]);
+  const period = range.label;
 
   const [occupancyReport, setOccupancyReport] = useState<any>(null);
   const [revenueReport, setRevenueReport] = useState<any>(null);
   const [peakHoursReport, setPeakHoursReport] = useState<any[]>([]);
   const [spaceUtilReport, setSpaceUtilReport] = useState<any[]>([]);
+  const [dailyFlowReport, setDailyFlowReport] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -42,17 +46,22 @@ export const ReportsPage: React.FC = () => {
   const fetchReports = async () => {
     setLoading(true);
     try {
-      const [occRes, revRes, peakRes, spaceRes] = await Promise.all([
+      const dateParams = { dateFrom: range.dateFrom, dateTo: range.dateTo };
+      const [occRes, revRes, peakRes, spaceRes, flowRes] = await Promise.all([
         api.get('/reports/occupancy'),
-        api.get('/reports/revenue', { params: { period, dateFrom, dateTo } }),
-        api.get('/reports/peak-hours'),
-        api.get('/reports/spaces-utilization'),
+        api.get('/reports/revenue', {
+          params: { period: dateFilter.mode === 'all' ? 'all' : 'custom', ...dateParams },
+        }),
+        api.get('/reports/peak-hours', { params: dateParams }),
+        api.get('/reports/spaces-utilization', { params: dateParams }),
+        api.get('/reports/daily-flow', { params: dateParams }),
       ]);
 
       setOccupancyReport(occRes.data);
       setRevenueReport(revRes.data);
       setPeakHoursReport(peakRes.data);
       setSpaceUtilReport(spaceRes.data);
+      setDailyFlowReport(flowRes.data);
     } catch (err: any) {
       setToast({ type: 'error', message: err.message });
     } finally {
@@ -62,12 +71,9 @@ export const ReportsPage: React.FC = () => {
 
   useEffect(() => {
     fetchReports();
-  }, [period]);
+  }, [range.dateFrom, range.dateTo]);
 
-  const handleApplyCustomFilter = (e: React.FormEvent) => {
-    e.preventDefault();
-    fetchReports();
-  };
+  const flowDays: any[] = dailyFlowReport?.detalle || [];
 
   // Exportar a Excel XLSX real
   const exportToExcel = () => {
@@ -80,7 +86,7 @@ export const ReportsPage: React.FC = () => {
       ['UNIVERSIDAD PRIVADA — PARQUEADERO CAMPUS CENTRAL'],
       ['REPORTE CONSOLIDADO DE INGRESOS Y OPERACIÓN'],
       ['Fecha de Generación', new Date().toLocaleString()],
-      ['Filtro Aplicado', period.toUpperCase()],
+      ['Filtro Aplicado', period],
       [],
       ['Métrica', 'Valor'],
       ['Total Ingresos Recaudados', `$${revenueReport.totalIngresos}`],
@@ -115,7 +121,25 @@ export const ReportsPage: React.FC = () => {
     const wsSpaces = XLSX.utils.json_to_sheet(spaceData);
     XLSX.utils.book_append_sheet(workbook, wsSpaces, 'Uso de Espacios');
 
-    XLSX.writeFile(workbook, `Reporte_Parqueadero_${new Date().toISOString().split('T')[0]}.xlsx`);
+    // Hoja 4: Flujo diario (análisis semanal)
+    const flowData = flowDays.map((d: any) => ({
+      Fecha: d.fecha,
+      Dia: d.dia,
+      Entradas: d.entradas,
+      Salidas: d.salidas,
+      Pagos: d.pagos,
+      Ingresos: d.ingresos,
+      EstanciaPromedioMin: d.estanciaPromedioMin,
+    }));
+    const wsFlow = XLSX.utils.json_to_sheet(flowData);
+    XLSX.utils.book_append_sheet(workbook, wsFlow, 'Flujo Diario');
+
+    // Hoja 5: Horas pico del período
+    const peakData = peakHoursReport.map((h: any) => ({ Hora: h.hora, VehiculosIngresados: h.ingresos }));
+    const wsPeak = XLSX.utils.json_to_sheet(peakData);
+    XLSX.utils.book_append_sheet(workbook, wsPeak, 'Horas Pico');
+
+    XLSX.writeFile(workbook, `Reporte_Parqueadero_${fileSuffix(range)}.xlsx`);
     setToast({ type: 'success', message: 'Reporte Excel (.xlsx) exportado exitosamente.' });
   };
 
@@ -136,15 +160,16 @@ export const ReportsPage: React.FC = () => {
 
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    doc.text(`REPORTE ADMINISTRATIVO EJECUTIVO DE INGRESOS (${period.toUpperCase()})`, 14, 25);
+    doc.text('REPORTE ADMINISTRATIVO EJECUTIVO DE INGRESOS', 14, 25);
 
     doc.setTextColor(51, 65, 85);
     doc.setFontSize(9);
     doc.text(`Generado el: ${new Date().toLocaleString()}`, 14, 43);
+    doc.text(`Filtro aplicado: ${period}`, 14, 48);
 
     // Resumen Metricas
     autoTable(doc, {
-      startY: 48,
+      startY: 53,
       head: [['Métrica de Rendimiento', 'Valor Consolidado']],
       body: [
         ['Total Recaudado en el Período', `$${revenueReport.totalIngresos.toLocaleString()} COP`],
@@ -152,9 +177,39 @@ export const ReportsPage: React.FC = () => {
         ['Promedio Recaudo por Vehículo', `$${revenueReport.promedioPago.toLocaleString()} COP`],
         ['Capacidad del Parqueadero', `${occupancyReport?.capacidadTotal || 20} espacios`],
         ['Porcentaje Actual Ocupación', `${occupancyReport?.porcentajeOcupacion || 0}%`],
+        ['Entradas de vehículos en el período', `${dailyFlowReport?.totalEntradas || 0}`],
+        ['Salidas de vehículos en el período', `${dailyFlowReport?.totalSalidas || 0}`],
+        ['Promedio de entradas por día', `${dailyFlowReport?.promedioEntradasDia || 0}`],
+        [
+          'Día de mayor flujo',
+          dailyFlowReport?.diaMayorFlujo
+            ? `${dailyFlowReport.diaMayorFlujo.dia} ${dailyFlowReport.diaMayorFlujo.fecha} (${dailyFlowReport.diaMayorFlujo.entradas} entradas)`
+            : '—',
+        ],
       ],
       theme: 'striped',
       headStyles: { fillColor: [2, 132, 199] },
+    });
+
+    // Flujo diario (análisis semanal)
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Flujo Diario del Período', 14, (doc as any).lastAutoTable.finalY + 12);
+    autoTable(doc, {
+      startY: (doc as any).lastAutoTable.finalY + 16,
+      head: [['Fecha', 'Día', 'Entradas', 'Salidas', 'Pagos', 'Ingresos', 'Estancia prom.']],
+      body: flowDays.map((d: any) => [
+        d.fecha,
+        d.dia,
+        d.entradas,
+        d.salidas,
+        d.pagos,
+        `$${d.ingresos.toLocaleString()}`,
+        `${d.estanciaPromedioMin} min`,
+      ]),
+      theme: 'grid',
+      headStyles: { fillColor: [2, 132, 199] },
+      styles: { fontSize: 8 },
     });
 
     // Detalle de Transacciones
@@ -181,7 +236,7 @@ export const ReportsPage: React.FC = () => {
       styles: { fontSize: 8 },
     });
 
-    doc.save(`Reporte_Administrativo_${new Date().toISOString().split('T')[0]}.pdf`);
+    doc.save(`Reporte_Administrativo_${fileSuffix(range)}.pdf`);
     setToast({ type: 'success', message: 'Reporte PDF exportado exitosamente.' });
   };
 
@@ -222,67 +277,21 @@ export const ReportsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Bar Selector Periodo */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-slate-400">Seleccionar Período:</span>
-          <div className="flex p-1 bg-slate-950 border border-slate-800 rounded-xl text-xs">
-            <button
-              onClick={() => setPeriod('day')}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
-                period === 'day' ? 'bg-sky-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Hoy (Día)
-            </button>
-            <button
-              onClick={() => setPeriod('week')}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
-                period === 'week' ? 'bg-sky-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Última Semana
-            </button>
-            <button
-              onClick={() => setPeriod('month')}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
-                period === 'month' ? 'bg-sky-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Mes Actual
-            </button>
-          </div>
-        </div>
-
-        {/* Custom Date Form */}
-        <form onSubmit={handleApplyCustomFilter} className="flex items-center gap-2 text-xs">
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="bg-slate-950 border border-slate-700 rounded-xl px-2 py-1.5 text-slate-200"
-          />
-          <span className="text-slate-500">a</span>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="bg-slate-950 border border-slate-700 rounded-xl px-2 py-1.5 text-slate-200"
-          />
-          <button
-            type="submit"
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-sky-400 font-semibold rounded-xl transition-colors border border-slate-700"
-          >
-            Filtrar Rango
-          </button>
-        </form>
+      {/* Filtro de período: accesos rápidos, día específico o rango de fechas */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+        <DateRangeFilter
+          value={dateFilter}
+          onChange={setDateFilter}
+          title="Seleccionar Período:"
+          presets={['today', 'yesterday', 'week', 'last7', 'month', 'last30', 'all', 'day', 'range']}
+        />
       </div>
 
       {/* KPI Cards de Reporte */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-2 shadow-lg">
           <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-            Total Recaudado ({period.toUpperCase()})
+            Total Recaudado del Período
           </span>
           <p className="text-3xl font-extrabold text-amber-400">
             ${revenueReport?.totalIngresos.toLocaleString() || 0}
@@ -290,6 +299,7 @@ export const ReportsPage: React.FC = () => {
           <p className="text-[11px] text-slate-500">
             {revenueReport?.cantidadPagos || 0} pagos procesados exitosamente
           </p>
+          <p className="text-[10px] text-slate-600">{period}</p>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-2 shadow-lg">
@@ -312,6 +322,74 @@ export const ReportsPage: React.FC = () => {
           <p className="text-[11px] text-slate-500">
             {occupancyReport?.espaciosOcupados} de {occupancyReport?.capacidadTotal} espacios en uso
           </p>
+        </div>
+      </div>
+
+      {/* Flujo diario del período (análisis semanal) */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-slate-200">Flujo Diario de Vehículos e Ingresos</h3>
+            <p className="text-[11px] text-slate-500">
+              {dateFilter.mode === 'all' ? 'Últimos 7 días (sin filtro de fecha)' : period}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-[11px]">
+            <span className="px-2.5 py-1 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-300">
+              Entradas: <strong>{dailyFlowReport?.totalEntradas || 0}</strong>
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300">
+              Salidas: <strong>{dailyFlowReport?.totalSalidas || 0}</strong>
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-300">
+              Prom. entradas/día: <strong>{dailyFlowReport?.promedioEntradasDia || 0}</strong>
+            </span>
+            {dailyFlowReport?.diaMayorFlujo && (
+              <span className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300">
+                Mayor flujo: <strong>{dailyFlowReport.diaMayorFlujo.dia} {dailyFlowReport.diaMayorFlujo.fecha}</strong>
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="h-64 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={flowDays.map((d: any) => ({ ...d, etiqueta: `${d.dia.slice(0, 3)} ${d.fecha.slice(5)}` }))}>
+              <XAxis dataKey="etiqueta" stroke="#64748b" fontSize={11} />
+              <YAxis allowDecimals={false} stroke="#64748b" fontSize={11} />
+              <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px' }} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="entradas" fill="#0ea5e9" name="Entradas" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="salidas" fill="#10b981" name="Salidas" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="overflow-x-auto border border-slate-800 rounded-xl">
+          <table className="w-full text-left text-xs text-slate-300">
+            <thead className="bg-slate-950/80 text-slate-400 uppercase font-semibold text-[11px] border-b border-slate-800">
+              <tr>
+                <th className="p-3">Día</th>
+                <th className="p-3">Fecha</th>
+                <th className="p-3">Entradas</th>
+                <th className="p-3">Salidas</th>
+                <th className="p-3">Pagos</th>
+                <th className="p-3">Ingresos</th>
+                <th className="p-3">Estancia prom.</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60">
+              {flowDays.map((d: any) => (
+                <tr key={d.fecha} className="hover:bg-slate-800/40 transition-colors">
+                  <td className="p-3 font-semibold text-slate-200">{d.dia}</td>
+                  <td className="p-3 font-mono text-slate-400">{d.fecha}</td>
+                  <td className="p-3 font-bold text-sky-400">{d.entradas}</td>
+                  <td className="p-3 font-bold text-emerald-400">{d.salidas}</td>
+                  <td className="p-3">{d.pagos}</td>
+                  <td className="p-3 font-bold text-amber-400">${d.ingresos.toLocaleString()}</td>
+                  <td className="p-3 font-mono">{d.estanciaPromedioMin} min</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 
